@@ -7,56 +7,61 @@
     <title>{{ app_name }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
   </head>
   <body>
     <main class="shell">
-      <section class="hero">
-        <div class="hero-copy">
-          <div class="hero-topline">
-            <span class="eyebrow">Localhost control plane</span>
-            <span class="refresh-pill">refreshes every 10s</span>
+      <section class="hero panel">
+        <div class="hero-topline">
+          <span class="eyebrow">Command theater</span>
+          <span class="refresh-pill">refreshes every 10s</span>
+        </div>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <h1>{{ app_name }}</h1>
+            <p class="lede">
+              Watch local agents move like a live command network instead of a pane of counters.
+            </p>
+            <p class="muted-text">
+              The network map below is inferred from real worker phases, freshness, and dispatch history. It does not invent captain hierarchies that the store does not have.
+            </p>
           </div>
-          <div class="hero-main">
-            <div>
-              <h1>{{ app_name }}</h1>
-              <p class="lede">
-                Durable worker state, validated phase transitions, short phase notes, and an operator board that stays worth keeping open.
-              </p>
-            </div>
-            <div class="focus-summary">
-              <span class="label">Control Focus</span>
-              {% if selected_worker %}
-              <p class="focus-worker">{{ selected_worker.worker_id }}</p>
-              <p class="focus-line">{{ selected_worker.status_line }}</p>
-              {% else %}
-              <p class="focus-worker">No workers yet</p>
-              <p class="focus-line">Post a worker transition to populate the board.</p>
+          <article class="focus-summary">
+            <span class="label">Current Focus</span>
+            {% if selected_worker %}
+            <p class="focus-worker">{{ selected_worker.worker_id }}</p>
+            <p class="focus-line">{{ selected_worker.status_line }}</p>
+            <div class="chip-row">
+              <span class="meta-chip"><strong>phase</strong> {{ selected_worker.phase.value }}</span>
+              {% if selected_worker.branch %}
+              <span class="meta-chip"><strong>branch</strong> <code>{{ selected_worker.branch }}</code></span>
               {% endif %}
             </div>
-          </div>
+            {% else %}
+            <p class="focus-worker">No active units</p>
+            <p class="focus-line">Post a worker transition to light up the map.</p>
+            {% endif %}
+          </article>
         </div>
-
         <div class="summary-grid">
           <article class="summary-card">
-            <span class="label">Workers</span>
+            <span class="label">Network Size</span>
             <p class="metric">{{ snapshot.totals.workers }}</p>
           </article>
           <article class="summary-card">
-            <span class="label">Active</span>
+            <span class="label">Active Links</span>
             <p class="metric">{{ snapshot.totals.active }}</p>
           </article>
           <article class="summary-card summary-card-alert">
-            <span class="label">Blocked</span>
+            <span class="label">Hot Sectors</span>
             <p class="metric">{{ snapshot.totals.blocked }}</p>
           </article>
           <article class="summary-card">
-            <span class="label">Handoff Ready</span>
+            <span class="label">Ready For Handoff</span>
             <p class="metric">{{ snapshot.totals.handoff_ready }}</p>
           </article>
         </div>
-
         <div class="meta-strip">
           <span><strong>Environment</strong> {{ environment }}</span>
           <span><strong>Workspace</strong> {{ workspace }}</span>
@@ -65,202 +70,148 @@
         </div>
       </section>
 
-      <section class="panel-stack">
-        <section class="panel panel-phases">
-          <div class="section-head">
-            <h2>Phase Board</h2>
-            <p>Grouped by the canonical worker lifecycle.</p>
-          </div>
-          <div class="phase-grid">
-            {% for phase in phase_order %}
-            <article class="phase-column">
-              <div class="phase-header">
-                <h3>{{ phase.value }}</h3>
-                <span class="pill">{{ snapshot.by_phase[phase] | length }}</span>
+      <section class="layout-grid">
+        <section class="main-column">
+          <article class="panel network-stage">
+            <div class="section-head">
+              <div>
+                <h2>Battle Network</h2>
+                <p>Central command core with phase relays and live worker nodes.</p>
               </div>
-              {% if snapshot.by_phase[phase] %}
-              <div class="worker-list">
-                {% for worker in snapshot.by_phase[phase] %}
-                {% set freshness = worker_states[worker.worker_id] %}
-                <article class="worker-card phase-{{ phase.value }} freshness-{{ freshness.state }}{% if selected_worker_id == worker.worker_id %} worker-card-selected{% endif %}">
-                  <div class="worker-head">
-                    <div>
-                      <a class="worker-link" href="/?worker={{ worker.worker_id }}#control-pane">{{ worker.worker_id }}</a>
-                      <p class="timestamp">{{ worker.updated_at | relative_time }}</p>
-                    </div>
-                    <span class="freshness-pill freshness-pill-{{ freshness.state }}">{{ freshness.label }}</span>
+              <span class="section-tag">inferred operational view</span>
+            </div>
+            <div class="network-map{% if not network_clusters %} network-map-empty{% endif %}">
+              <div class="network-rings" aria-hidden="true"></div>
+              <article class="command-core">
+                <span class="eyebrow">Command Core</span>
+                <h3>{{ app_name }}</h3>
+                <p class="core-line">
+                  {{ snapshot.totals.active }} active unit{% if snapshot.totals.active != 1 %}s{% endif %}
+                  across {{ snapshot.by_phase | length }} tracked phase lanes.
+                </p>
+                <div class="core-grid">
+                  <div>
+                    <span class="label">Environment</span>
+                    <p>{{ environment }}</p>
                   </div>
-                  <p class="status-line">{{ worker.status_line }}</p>
-                  <div class="chip-row">
-                    {% if worker.branch %}
-                    <span class="meta-chip"><strong>branch</strong> <code>{{ worker.branch }}</code></span>
-                    {% endif %}
-                    {% if worker.worktree %}
-                    <span class="meta-chip"><strong>worktree</strong> <code>{{ worker.worktree }}</code></span>
-                    {% endif %}
-                    {% if worker.owned_artifact %}
-                    <span class="meta-chip"><strong>artifact</strong> <code>{{ worker.owned_artifact }}</code></span>
-                    {% endif %}
+                  <div>
+                    <span class="label">Recent Orders</span>
+                    <p>{{ recent_commands | length }}</p>
                   </div>
-                  <p class="repo-line"><strong>repo</strong> <code>{{ worker.repo_path }}</code></p>
-                  {% if worker.next_irreversible_step %}
-                  <p class="next-step"><strong>Next</strong> {{ worker.next_irreversible_step }}</p>
-                  {% endif %}
-                  {% if worker.blocker %}
-                  <p class="blocker"><strong>Blocker</strong> {{ worker.blocker }}</p>
-                  {% endif %}
-                  {% if worker.last_note %}
-                  <div class="note">
-                    <span class="note-phase">{{ worker.last_note.phase.value }}</span>
-                    <p>{{ worker.last_note.note }}</p>
+                  <div>
+                    <span class="label">Conflict Watch</span>
+                    <p>{{ snapshot.conflicts | length }}</p>
                   </div>
-                  {% endif %}
-                  {% if worker.pr_url %}
-                  <p class="pr-link"><a href="{{ worker.pr_url }}">PR</a></p>
+                  <div>
+                    <span class="label">Focus Unit</span>
+                    <p>{% if selected_worker %}{{ selected_worker.worker_id }}{% else %}none{% endif %}</p>
+                  </div>
+                </div>
+              </article>
+
+              {% if network_clusters %}
+              <div class="relay-grid">
+                {% for cluster in network_clusters %}
+                <article class="relay-card phase-{{ cluster.phase.value }}">
+                  <div class="relay-header">
+                    <span class="note-phase">phase relay</span>
+                    <span class="pill">{{ cluster.count }}</span>
+                  </div>
+                  <h3>{{ cluster.phase.value }}</h3>
+                  <p class="relay-copy">{{ cluster.label }}</p>
+                  <div class="unit-list">
+                    {% for unit in cluster.units %}
+                    <a class="unit-node freshness-{{ unit.freshness.state }}{% if unit.selected %} unit-node-selected{% endif %}" href="/?worker={{ unit.worker.worker_id }}#control-pane">
+                      <span class="unit-name">{{ unit.worker.worker_id }}</span>
+                      <span class="unit-phase">{{ unit.worker.updated_at | relative_time }}</span>
+                    </a>
+                    {% endfor %}
+                  </div>
+                  {% if cluster.overflow %}
+                  <p class="muted-text">+{{ cluster.overflow }} more units in this relay</p>
                   {% endif %}
                 </article>
                 {% endfor %}
               </div>
               {% else %}
-              <p class="empty-state">No workers in this phase.</p>
+              <article class="relay-empty">
+                <h3>No units on the field</h3>
+                <p>Use Self Report Intake to register a worker, then this network view will project its phase and freshness automatically.</p>
+              </article>
               {% endif %}
-            </article>
-            {% endfor %}
-          </div>
-        </section>
-
-        <section class="rail" id="control-pane">
-          <article class="panel" id="dispatch-pane">
-            <div class="section-head">
-              <h2>General Dispatch</h2>
-              <p>Issue one concrete order and launch a real `codex exec` general prompt.</p>
             </div>
-            {% if dispatch_status == "launched" %}
-            <div class="banner banner-success">
-              <strong>Launched.</strong> The general order was handed to Codex and logged under `data/dispatches`.
-            </div>
-            {% endif %}
-            {% if dispatch_error %}
-            <div class="banner banner-error">
-              <strong>Rejected.</strong> {{ dispatch_error }}
-            </div>
-            {% endif %}
-            <form class="report-form" action="/dispatch" method="post">
-              <div class="form-grid">
-                <label>
-                  <span class="label">General Worker ID</span>
-                  <input name="general_worker_id" value="{{ dispatch_defaults.general_worker_id }}" placeholder="general-20260315-overlord" required>
-                </label>
-                <label>
-                  <span class="label">Branch Hint</span>
-                  <input name="branch_hint" value="{{ dispatch_defaults.branch_hint }}" placeholder="feat/localhost-mvp">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Repo Path</span>
-                  <input name="repo_path" value="{{ dispatch_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Operator Instruction</span>
-                  <textarea name="operator_instruction" rows="5" placeholder="Finish the localhost MVP, verify it with pytest, and hand back the PR URL." required></textarea>
-                </label>
-              </div>
-              <div class="form-actions">
-                <button type="submit">Launch General</button>
-                <p class="muted-text">Overlord writes the prompt to disk, starts `codex exec`, and keeps the log path visible below.</p>
-              </div>
-            </form>
           </article>
 
-          <article class="panel" id="self-report">
+          <article class="panel">
             <div class="section-head">
-              <h2>Self Report Intake</h2>
-              <p>Delegated workers can post one transition at a time without a separate client.</p>
-            </div>
-            {% if report_status == "accepted" %}
-            <div class="banner banner-success">
-              <strong>Accepted.</strong> The army state was updated and the board will refresh automatically.
-            </div>
-            {% endif %}
-            {% if report_error %}
-            <div class="banner banner-error">
-              <strong>Rejected.</strong> {{ report_error }}
-            </div>
-            {% endif %}
-            <form class="report-form" action="/report" method="post">
-              <div class="form-grid">
-                <label>
-                  <span class="label">Worker ID</span>
-                  <input name="worker_id" value="{{ report_defaults.worker_id }}" placeholder="worker-20260315-overlord-agent-a" required>
-                </label>
-                <label>
-                  <span class="label">Worker Token</span>
-                  <input name="worker_token" type="password" placeholder="worker-scoped secret" required>
-                </label>
-                <label>
-                  <span class="label">Current Phase</span>
-                  <select name="current_phase" required>
-                    {% for phase_value in phase_values %}
-                    <option value="{{ phase_value }}"{% if selected_worker and selected_worker.phase.value == phase_value %} selected{% endif %}>{{ phase_value }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <label>
-                  <span class="label">Previous Phase</span>
-                  <select name="previous_phase">
-                    <option value="">none</option>
-                    {% for phase_value in phase_values %}
-                    <option value="{{ phase_value }}"{% if report_defaults.previous_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Status Line</span>
-                  <input name="status_line" placeholder="patching the handoff-ready summary card" required>
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Repo Path</span>
-                  <input name="repo_path" value="{{ report_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
-                </label>
-                <label>
-                  <span class="label">Branch</span>
-                  <input name="branch" value="{{ report_defaults.branch }}" placeholder="feat/overlord-mvp">
-                </label>
-                <label>
-                  <span class="label">Worktree</span>
-                  <input name="worktree" value="{{ report_defaults.worktree }}" placeholder="/tmp/overlord-worker-a">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Owned Artifact</span>
-                  <input name="owned_artifact" value="{{ report_defaults.owned_artifact }}" placeholder="overlord/templates/index.html">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Next Irreversible Step</span>
-                  <input name="next_irreversible_step" placeholder="run pytest and open the MVP PR">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Blocker</span>
-                  <input name="blocker" placeholder="waiting on repo instruction clarification">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Pull Request URL</span>
-                  <input name="pr_url" type="url" placeholder="https://github.com/mvs5465-test/overlord/pull/1">
-                </label>
-                <label class="form-span-2">
-                  <span class="label">Short Note</span>
-                  <textarea name="note" rows="3" placeholder="kept the MVP server-rendered and reused the sqlite store"></textarea>
-                </label>
+              <div>
+                <h2>Operational Sectors</h2>
+                <p>Lifecycle lanes, still grouped by the canonical worker phases.</p>
               </div>
-              <div class="form-actions">
-                <button type="submit">Post Self Report</button>
-                <p class="muted-text">Initial registrations use `current_phase=assigned` with `previous_phase=none`.</p>
-              </div>
-            </form>
+              <span class="section-tag">real store data</span>
+            </div>
+            <div class="phase-grid">
+              {% for phase in phase_order %}
+              <article class="phase-column">
+                <div class="phase-header">
+                  <h3>{{ phase.value }}</h3>
+                  <span class="pill">{{ snapshot.by_phase[phase] | length }}</span>
+                </div>
+                {% if snapshot.by_phase[phase] %}
+                <div class="worker-list">
+                  {% for worker in snapshot.by_phase[phase] %}
+                  {% set freshness = worker_states[worker.worker_id] %}
+                  <article class="worker-card phase-{{ phase.value }} freshness-{{ freshness.state }}{% if selected_worker_id == worker.worker_id %} worker-card-selected{% endif %}">
+                    <div class="worker-head">
+                      <div>
+                        <a class="worker-link" href="/?worker={{ worker.worker_id }}#control-pane">{{ worker.worker_id }}</a>
+                        <p class="timestamp">{{ worker.updated_at | relative_time }}</p>
+                      </div>
+                      <span class="freshness-pill freshness-pill-{{ freshness.state }}">{{ freshness.label }}</span>
+                    </div>
+                    <p class="status-line">{{ worker.status_line }}</p>
+                    <div class="chip-row">
+                      {% if worker.branch %}
+                      <span class="meta-chip"><strong>branch</strong> <code>{{ worker.branch }}</code></span>
+                      {% endif %}
+                      {% if worker.owned_artifact %}
+                      <span class="meta-chip"><strong>artifact</strong> <code>{{ worker.owned_artifact }}</code></span>
+                      {% endif %}
+                    </div>
+                    <p class="repo-line"><strong>repo</strong> <code>{{ worker.repo_path }}</code></p>
+                    {% if worker.next_irreversible_step %}
+                    <p class="next-step"><strong>Next</strong> {{ worker.next_irreversible_step }}</p>
+                    {% endif %}
+                    {% if worker.blocker %}
+                    <p class="blocker"><strong>Blocker</strong> {{ worker.blocker }}</p>
+                    {% endif %}
+                    {% if worker.last_note %}
+                    <div class="note">
+                      <span class="note-phase">{{ worker.last_note.phase.value }}</span>
+                      <p>{{ worker.last_note.note }}</p>
+                    </div>
+                    {% endif %}
+                    {% if worker.pr_url %}
+                    <p class="pr-link"><a href="{{ worker.pr_url }}">PR</a></p>
+                    {% endif %}
+                  </article>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-state">No units in this sector.</p>
+                {% endif %}
+              </article>
+              {% endfor %}
+            </div>
           </article>
 
-          <article class="panel control-panel">
+          <article class="panel control-panel" id="control-pane">
             <div class="section-head">
-              <h2>Control Pane</h2>
-              <p>Selected worker detail, transitions, and phase notes.</p>
+              <div>
+                <h2>Focus Dossier</h2>
+                <p>Selected worker detail, transitions, and notes.</p>
+              </div>
+              <span class="section-tag">selected worker</span>
             </div>
             {% if selected_worker %}
             {% set selected_freshness = worker_states[selected_worker.worker_id] %}
@@ -302,75 +253,216 @@
               {% endif %}
             </article>
 
-            <div class="detail-section">
-              <div class="section-head section-head-tight">
-                <h3>Phase Trail</h3>
-                <p>{{ selected_worker.transitions | length }} transition{% if selected_worker.transitions | length != 1 %}s{% endif %}</p>
-              </div>
-              <div class="timeline">
-                {% for transition in selected_worker.transitions %}
-                <article class="timeline-card">
-                  <div class="timeline-head">
-                    <div class="timeline-title">
-                      {% if transition.previous_phase %}
-                      <span>{{ transition.previous_phase.value }}</span>
-                      <span class="timeline-arrow">-></span>
-                      {% endif %}
-                      <strong>{{ transition.current_phase.value }}</strong>
+            <div class="detail-grid">
+              <div class="detail-section">
+                <div class="section-head section-head-tight">
+                  <h3>Phase Trail</h3>
+                  <p>{{ selected_worker.transitions | length }} transition{% if selected_worker.transitions | length != 1 %}s{% endif %}</p>
+                </div>
+                <div class="timeline">
+                  {% for transition in selected_worker.transitions %}
+                  <article class="timeline-card">
+                    <div class="timeline-head">
+                      <div class="timeline-title">
+                        {% if transition.previous_phase %}
+                        <span>{{ transition.previous_phase.value }}</span>
+                        <span class="timeline-arrow">-></span>
+                        {% endif %}
+                        <strong>{{ transition.current_phase.value }}</strong>
+                      </div>
+                      <span class="timestamp">{{ timestamp_format(transition.created_at) }}</span>
                     </div>
-                    <span class="timestamp">{{ timestamp_format(transition.created_at) }}</span>
-                  </div>
-                  <p>{{ transition.status_line }}</p>
-                  {% if transition.next_irreversible_step %}
-                  <p class="next-step"><strong>Next</strong> {{ transition.next_irreversible_step }}</p>
-                  {% endif %}
-                  {% if transition.blocker %}
-                  <p class="blocker"><strong>Blocker</strong> {{ transition.blocker }}</p>
-                  {% endif %}
-                  {% if transition.note %}
-                  <p class="timeline-note">{{ transition.note }}</p>
-                  {% endif %}
-                </article>
-                {% endfor %}
+                    <p>{{ transition.status_line }}</p>
+                    {% if transition.next_irreversible_step %}
+                    <p class="next-step"><strong>Next</strong> {{ transition.next_irreversible_step }}</p>
+                    {% endif %}
+                    {% if transition.blocker %}
+                    <p class="blocker"><strong>Blocker</strong> {{ transition.blocker }}</p>
+                    {% endif %}
+                    {% if transition.note %}
+                    <p class="timeline-note">{{ transition.note }}</p>
+                    {% endif %}
+                  </article>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="detail-section">
+                <div class="section-head section-head-tight">
+                  <h3>Phase Notes</h3>
+                  <p>Short notes grouped by phase.</p>
+                </div>
+                {% if selected_phase_notes %}
+                <div class="phase-note-groups">
+                  {% for group in selected_phase_notes %}
+                  <article class="phase-note-group">
+                    <div class="phase-note-header">
+                      <span class="note-phase">{{ group.phase.value }}</span>
+                      <span class="timestamp">{{ group.notes | length }} note{% if group.notes | length != 1 %}s{% endif %}</span>
+                    </div>
+                    <div class="phase-note-list">
+                      {% for note in group.notes %}
+                      <article class="phase-note-card">
+                        <p class="timestamp">{{ timestamp_format(note.created_at) }}</p>
+                        <p>{{ note.note }}</p>
+                      </article>
+                      {% endfor %}
+                    </div>
+                  </article>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-state">No phase notes for this worker yet.</p>
+                {% endif %}
               </div>
             </div>
-
-            <div class="detail-section">
-              <div class="section-head section-head-tight">
-                <h3>Phase Notes</h3>
-                <p>Short notes grouped by phase.</p>
-              </div>
-              {% if selected_phase_notes %}
-              <div class="phase-note-groups">
-                {% for group in selected_phase_notes %}
-                <article class="phase-note-group">
-                  <div class="phase-note-header">
-                    <span class="note-phase">{{ group.phase.value }}</span>
-                    <span class="timestamp">{{ group.notes | length }} note{% if group.notes | length != 1 %}s{% endif %}</span>
-                  </div>
-                  <div class="phase-note-list">
-                    {% for note in group.notes %}
-                    <article class="phase-note-card">
-                      <p class="timestamp">{{ timestamp_format(note.created_at) }}</p>
-                      <p>{{ note.note }}</p>
-                    </article>
-                    {% endfor %}
-                  </div>
-                </article>
-                {% endfor %}
-              </div>
-              {% else %}
-              <p class="empty-state">No phase notes for this worker yet.</p>
-              {% endif %}
             {% else %}
             <p class="empty-state">No worker selected yet.</p>
             {% endif %}
           </article>
+        </section>
+
+        <section class="rail">
+          <article class="panel" id="dispatch-pane">
+            <div class="section-head">
+              <div>
+                <h2>General Dispatch</h2>
+                <p>Issue one concrete order and launch a real <code>codex exec</code> general prompt.</p>
+              </div>
+              <span class="section-tag">operator action</span>
+            </div>
+            {% if dispatch_status == "launched" %}
+            <div class="banner banner-success">
+              <strong>Launched.</strong> The general order was handed to Codex and logged under <code>data/dispatches</code>.
+            </div>
+            {% endif %}
+            {% if dispatch_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ dispatch_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/dispatch" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">General Worker ID</span>
+                  <input name="general_worker_id" value="{{ dispatch_defaults.general_worker_id }}" placeholder="general-20260315-overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch Hint</span>
+                  <input name="branch_hint" value="{{ dispatch_defaults.branch_hint }}" placeholder="feat/localhost-mvp">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ dispatch_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Operator Instruction</span>
+                  <textarea name="operator_instruction" rows="5" placeholder="Finish the localhost MVP, verify it with pytest, and hand back the PR URL." required></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Launch General</button>
+                <p class="muted-text">Orders stay server-rendered, local-first, and visible in Recent Orders.</p>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel" id="self-report">
+            <div class="section-head">
+              <div>
+                <h2>Self Report Intake</h2>
+                <p>Delegated workers can post one transition at a time without a separate client.</p>
+              </div>
+              <span class="section-tag">worker intake</span>
+            </div>
+            {% if report_status == "accepted" %}
+            <div class="banner banner-success">
+              <strong>Accepted.</strong> The army state was updated and the board will refresh automatically.
+            </div>
+            {% endif %}
+            {% if report_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ report_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/report" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">Worker ID</span>
+                  <input name="worker_id" value="{{ report_defaults.worker_id }}" placeholder="worker-20260315-overlord-agent-a" required>
+                </label>
+                <label>
+                  <span class="label">Worker Token</span>
+                  <input name="worker_token" type="password" placeholder="worker-scoped secret" required>
+                </label>
+                <label>
+                  <span class="label">Current Phase</span>
+                  <select name="current_phase" required>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if selected_worker and selected_worker.phase.value == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span class="label">Previous Phase</span>
+                  <select name="previous_phase">
+                    <option value="">none</option>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if report_defaults.previous_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Status Line</span>
+                  <input name="status_line" placeholder="patching the battle-network relay cards" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ report_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch</span>
+                  <input name="branch" value="{{ report_defaults.branch }}" placeholder="feat/overlord-mvp">
+                </label>
+                <label>
+                  <span class="label">Worktree</span>
+                  <input name="worktree" value="{{ report_defaults.worktree }}" placeholder="/tmp/overlord-worker-a">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Owned Artifact</span>
+                  <input name="owned_artifact" value="{{ report_defaults.owned_artifact }}" placeholder="overlord/templates/index.html">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Next Irreversible Step</span>
+                  <input name="next_irreversible_step" placeholder="run pytest and open the MVP PR">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Blocker</span>
+                  <input name="blocker" placeholder="waiting on repo instruction clarification">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Pull Request URL</span>
+                  <input name="pr_url" type="url" placeholder="https://github.com/mvs5465-test/overlord/pull/1">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Short Note</span>
+                  <textarea name="note" rows="3" placeholder="kept the app server-rendered and reshaped only the operator surface"></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Post Self Report</button>
+                <p class="muted-text">Initial registrations use <code>current_phase=assigned</code> with <code>previous_phase=none</code>.</p>
+              </div>
+            </form>
+          </article>
 
           <article class="panel">
             <div class="section-head">
-              <h2>Recent Orders</h2>
-              <p>General dispatch history with pid and local log paths.</p>
+              <div>
+                <h2>Recent Orders</h2>
+                <p>General dispatch history with pid and local log paths.</p>
+              </div>
+              <span class="section-tag">command log</span>
             </div>
             {% if recent_commands %}
             <div class="note-feed">
@@ -398,8 +490,11 @@
 
           <article class="panel">
             <div class="section-head">
-              <h2>Conflict Watch</h2>
-              <p>Repo, branch, worktree, and artifact overlaps.</p>
+              <div>
+                <h2>Conflict Watch</h2>
+                <p>Repo, branch, worktree, and artifact overlaps.</p>
+              </div>
+              <span class="section-tag">collision scan</span>
             </div>
             {% if snapshot.conflicts %}
             <div class="conflict-list">
@@ -418,8 +513,11 @@
 
           <article class="panel">
             <div class="section-head">
-              <h2>Recent Notes</h2>
-              <p>Short phase breadcrumbs, not a chat log.</p>
+              <div>
+                <h2>Recent Notes</h2>
+                <p>Short phase breadcrumbs, not a chat log.</p>
+              </div>
+              <span class="section-tag">signal feed</span>
             </div>
             {% if snapshot.recent_notes %}
             <div class="note-feed">

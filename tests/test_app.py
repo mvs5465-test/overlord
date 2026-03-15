@@ -130,9 +130,10 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Localhost control plane" in response.text
+    assert "Command theater" in response.text
     assert "worker-123" in response.text
-    assert "Control Pane" in response.text
+    assert "Battle Network" in response.text
+    assert "Focus Dossier" in response.text
     assert "Self Report Intake" in response.text
     assert "General Dispatch" in response.text
     assert "Phase Trail" in response.text

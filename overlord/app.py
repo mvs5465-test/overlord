@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from overlord.config import Settings
 from overlord.dashboard import (
+    build_network_clusters,
     format_relative_time,
     format_timestamp,
     grouped_phase_notes,
@@ -281,6 +282,11 @@ def _render_dashboard(
                 grouped_phase_notes(selected_worker) if selected_worker is not None else []
             ),
             "worker_states": worker_states,
+            "network_clusters": build_network_clusters(
+                snapshot,
+                worker_states,
+                selected_worker_id,
+            ),
             "timestamp_format": format_timestamp,
             "report_status": request.query_params.get("report"),
             "report_error": request.query_params.get("error"),
