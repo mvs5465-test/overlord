@@ -130,6 +130,92 @@
         </section>
 
         <section class="rail" id="control-pane">
+          <article class="panel" id="self-report">
+            <div class="section-head">
+              <h2>Self Report Intake</h2>
+              <p>Delegated workers can post one transition at a time without a separate client.</p>
+            </div>
+            {% if report_status == "accepted" %}
+            <div class="banner banner-success">
+              <strong>Accepted.</strong> The army state was updated and the board will refresh automatically.
+            </div>
+            {% endif %}
+            {% if report_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ report_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/report" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">Worker ID</span>
+                  <input name="worker_id" value="{{ report_defaults.worker_id }}" placeholder="worker-20260315-overlord-agent-a" required>
+                </label>
+                <label>
+                  <span class="label">Worker Token</span>
+                  <input name="worker_token" type="password" placeholder="worker-scoped secret" required>
+                </label>
+                <label>
+                  <span class="label">Current Phase</span>
+                  <select name="current_phase" required>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if selected_worker and selected_worker.phase.value == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span class="label">Previous Phase</span>
+                  <select name="previous_phase">
+                    <option value="">none</option>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if report_defaults.previous_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Status Line</span>
+                  <input name="status_line" placeholder="patching the handoff-ready summary card" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ report_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch</span>
+                  <input name="branch" value="{{ report_defaults.branch }}" placeholder="feat/overlord-mvp">
+                </label>
+                <label>
+                  <span class="label">Worktree</span>
+                  <input name="worktree" value="{{ report_defaults.worktree }}" placeholder="/tmp/overlord-worker-a">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Owned Artifact</span>
+                  <input name="owned_artifact" value="{{ report_defaults.owned_artifact }}" placeholder="overlord/templates/index.html">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Next Irreversible Step</span>
+                  <input name="next_irreversible_step" placeholder="run pytest and open the MVP PR">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Blocker</span>
+                  <input name="blocker" placeholder="waiting on repo instruction clarification">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Pull Request URL</span>
+                  <input name="pr_url" type="url" placeholder="https://github.com/mvs5465-test/overlord/pull/1">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Short Note</span>
+                  <textarea name="note" rows="3" placeholder="kept the MVP server-rendered and reused the sqlite store"></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Post Self Report</button>
+                <p class="muted-text">Initial registrations use `current_phase=assigned` with `previous_phase=none`.</p>
+              </div>
+            </form>
+          </article>
+
           <article class="panel control-panel">
             <div class="section-head">
               <h2>Control Pane</h2>

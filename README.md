@@ -11,6 +11,7 @@ This repo now ships the first real MVP slice: a small FastAPI control plane with
 - durable SQLite state under `./data/overlord.db`
 - validated worker phase transitions and short phase notes
 - worker roster and worker detail APIs
+- form-based self-report intake on the dashboard for manual delegated-worker updates
 - Python packaging via `pyproject.toml`
 - Dockerfile for containerizing the app
 - Helm chart aligned with the user's other local cluster app repos
@@ -28,6 +29,7 @@ Then open `http://127.0.0.1:8080`.
 Useful endpoints:
 
 - `GET /`
+- `POST /report`
 - `GET /healthz`
 - `GET /api/meta`
 - `POST /api/workers/events`
@@ -65,6 +67,8 @@ overlord-worker-status \
 ```
 
 The helper posts to `http://127.0.0.1:8080/api/workers/events` by default. Set `OVERLORD_CONTROL_PLANE_URL` to target a different local instance. Each worker is expected to keep its own `worker_token` and reuse it on later writes.
+
+For quick demos, the dashboard also exposes a `Self Report Intake` form that writes through the same state store and validation rules.
 
 Accepted phases in the MVP:
 

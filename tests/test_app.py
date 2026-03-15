@@ -117,6 +117,7 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     assert "Localhost control plane" in response.text
     assert "worker-123" in response.text
     assert "Control Pane" in response.text
+    assert "Self Report Intake" in response.text
     assert "Phase Trail" in response.text
     assert "Phase Notes" in response.text
     assert "keeping api and persistence untouched" in response.text
@@ -273,6 +274,51 @@ def test_homepage_focuses_requested_worker_in_control_pane(tmp_path: Path) -> No
     assert response.status_code == 200
     assert "claiming ui slice" in response.text
     assert "ready to build the operator surface" in response.text
+
+
+def test_dashboard_self_report_form_registers_worker(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+
+    response = client.post(
+        "/report",
+        data={
+            "worker_id": "worker-ui-1",
+            "worker_token": "worker-ui-secret",
+            "current_phase": "assigned",
+            "previous_phase": "",
+            "repo_path": str(tmp_path),
+            "status_line": "checking in from the dashboard form",
+            "note": "manual worker report path works",
+            "branch": "feat/ui-report",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Accepted." in response.text
+    assert "worker-ui-1" in response.text
+    assert "manual worker report path works" in response.text
+
+
+def test_dashboard_self_report_form_surfaces_validation_error(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+
+    response = client.post(
+        "/report",
+        data={
+            "worker_id": "worker-ui-2",
+            "worker_token": "worker-ui-secret",
+            "current_phase": "blocked",
+            "previous_phase": "",
+            "repo_path": str(tmp_path),
+            "status_line": "trying to post a blocked transition",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Rejected." in response.text
+    assert "blocked transitions must include a blocker" in response.text
 
 
 def test_worker_status_cli_builds_event_payload_with_abs_repo_path(tmp_path: Path) -> None:
