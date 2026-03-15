@@ -1,13 +1,16 @@
 # overlord
 
-Localhost-first agent coordination app scaffold.
+Localhost-first agent coordination control plane.
 
-This repo is intentionally just the starting shell. It sets up a small app surface, local-first configuration, packaging, and Kubernetes deployment scaffolding without pretending the coordination product exists yet.
+This repo now ships the first real MVP slice: a small FastAPI control plane with durable local worker state, validated phase transitions, short phase notes, and a server-rendered operator board.
 
 ## What is here
 
-- FastAPI app with a server-rendered placeholder homepage
+- FastAPI app with a server-rendered dashboard
 - health and metadata endpoints for quick local checks
+- durable SQLite state under `./data/overlord.db`
+- validated worker phase transitions and short phase notes
+- worker roster and worker detail APIs
 - Python packaging via `pyproject.toml`
 - Dockerfile for containerizing the app
 - Helm chart aligned with the user's other local cluster app repos
@@ -27,6 +30,10 @@ Useful endpoints:
 - `GET /`
 - `GET /healthz`
 - `GET /api/meta`
+- `POST /api/workers/events`
+- `POST /api/workers/{worker_id}/notes`
+- `GET /api/workers`
+- `GET /api/workers/{worker_id}`
 
 ## Configuration
 
@@ -38,10 +45,41 @@ Environment variables:
 - `OVERLORD_DATA_DIR` default `data`
 - `OVERLORD_DEFAULT_ENVIRONMENT` default `local`
 - `OVERLORD_DEFAULT_WORKSPACE` default `default`
+- `OVERLORD_ALLOWED_REPO_ROOTS` default `~/projects`
 
-## Next implementation seams
+## Worker status updates
 
-- worker registry and liveness model
-- durable local task and event storage
+Workers can post phase transitions and short notes to the local control plane with the bundled helper:
+
+```bash
+overlord-worker-status \
+  --worker-id worker-20260315-overlord-agent-client \
+  --worker-token worker-secret-token \
+  --current-phase implementing \
+  --previous-phase planned \
+  --status-line "writing the CLI helper" \
+  --note "adding cli write path" \
+  --repo-path /Users/matthewschwartz/projects/overlord \
+  --owned-artifact overlord/worker_status.py \
+  --next-step "run pytest for worker status api"
+```
+
+The helper posts to `http://127.0.0.1:8080/api/workers/events` by default. Set `OVERLORD_CONTROL_PLANE_URL` to target a different local instance. Each worker is expected to keep its own `worker_token` and reuse it on later writes.
+
+Accepted phases in the MVP:
+
+- `assigned`
+- `scouting`
+- `planned`
+- `implementing`
+- `validating`
+- `blocked`
+- `handoff-ready`
+- `terminal`
+
+## Current MVP seams
+
+- stale-heartbeat tracking and richer liveness rules
+- browser-side operator mutations
 - agent dispatch and coordination workflows
 - optional cluster deployment wiring through `local-k8s-apps`
