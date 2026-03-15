@@ -8,6 +8,17 @@ from overlord.models import DashboardSnapshot, PHASE_ORDER, WorkerDetail, Worker
 AGING_AFTER_SECONDS = 8 * 60
 STALE_AFTER_SECONDS = 20 * 60
 
+PHASE_THEATER_LABELS = {
+    WorkerPhase.ASSIGNED: "reserve units waiting for first movement",
+    WorkerPhase.SCOUTING: "recon lines reading repo terrain",
+    WorkerPhase.PLANNED: "attack lanes with a defined irreversible step",
+    WorkerPhase.IMPLEMENTING: "active pushes modifying the battlefield",
+    WorkerPhase.VALIDATING: "verification batteries checking the line",
+    WorkerPhase.BLOCKED: "contested sectors calling for operator attention",
+    WorkerPhase.HANDOFF_READY: "units holding position for handoff",
+    WorkerPhase.TERMINAL: "completed sorties retained for record",
+}
+
 
 def format_relative_time(value: datetime) -> str:
     now = datetime.now(timezone.utc)
@@ -86,3 +97,34 @@ def grouped_phase_notes(worker: WorkerDetail) -> list[dict[str, object]]:
         if notes:
             grouped.append({"phase": phase, "notes": notes})
     return grouped
+
+
+def build_network_clusters(
+    snapshot: DashboardSnapshot,
+    worker_states: dict[str, dict[str, str | int]],
+    selected_worker_id: str | None,
+) -> list[dict[str, object]]:
+    clusters: list[dict[str, object]] = []
+    for phase in PHASE_ORDER:
+        workers = snapshot.by_phase[phase]
+        if not workers:
+            continue
+
+        units = [
+            {
+                "worker": worker,
+                "freshness": worker_states[worker.worker_id],
+                "selected": worker.worker_id == selected_worker_id,
+            }
+            for worker in workers
+        ]
+        clusters.append(
+            {
+                "phase": phase,
+                "label": PHASE_THEATER_LABELS[phase],
+                "count": len(workers),
+                "units": units[:3],
+                "overflow": max(0, len(units) - 3),
+            }
+        )
+    return clusters

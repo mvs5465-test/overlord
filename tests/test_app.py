@@ -130,14 +130,34 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Localhost control plane" in response.text
+    assert "Command theater" in response.text
     assert "worker-123" in response.text
-    assert "Control Pane" in response.text
+    assert "Battle Network" in response.text
+    assert "Focus Dossier" in response.text
     assert "Self Report Intake" in response.text
     assert "General Dispatch" in response.text
     assert "Phase Trail" in response.text
     assert "Phase Notes" in response.text
     assert "keeping api and persistence untouched" in response.text
+
+
+def test_selected_worker_prefills_a_valid_next_transition(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+    register_worker(client, tmp_path)
+    transition_worker(
+        client,
+        tmp_path,
+        phase="scouting",
+        previous_phase="assigned",
+        status_line="reading repo instructions and app shape",
+        next_step="lock the ui artifact boundary",
+    )
+
+    response = client.get("/?worker=worker-123")
+
+    assert response.status_code == 200
+    assert '<option value="planned" selected>planned</option>' in response.text
+    assert '<option value="scouting" selected>scouting</option>' in response.text
 
 
 def test_worker_event_persists_and_project_current_state(tmp_path: Path) -> None:
