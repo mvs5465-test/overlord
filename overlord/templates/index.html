@@ -14,12 +14,30 @@
     <main class="shell">
       <section class="hero">
         <div class="hero-copy">
-          <span class="eyebrow">Localhost control plane</span>
-          <h1>{{ app_name }}</h1>
-          <p class="lede">
-            Durable worker state, validated phase transitions, short phase notes, and one small operator board.
-          </p>
+          <div class="hero-topline">
+            <span class="eyebrow">Localhost control plane</span>
+            <span class="refresh-pill">refreshes every 10s</span>
+          </div>
+          <div class="hero-main">
+            <div>
+              <h1>{{ app_name }}</h1>
+              <p class="lede">
+                Durable worker state, validated phase transitions, short phase notes, and an operator board that stays worth keeping open.
+              </p>
+            </div>
+            <div class="focus-summary">
+              <span class="label">Control Focus</span>
+              {% if selected_worker %}
+              <p class="focus-worker">{{ selected_worker.worker_id }}</p>
+              <p class="focus-line">{{ selected_worker.status_line }}</p>
+              {% else %}
+              <p class="focus-worker">No workers yet</p>
+              <p class="focus-line">Post a worker transition to populate the board.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
+
         <div class="summary-grid">
           <article class="summary-card">
             <span class="label">Workers</span>
@@ -38,6 +56,7 @@
             <p class="metric">{{ snapshot.totals.handoff_ready }}</p>
           </article>
         </div>
+
         <div class="meta-strip">
           <span><strong>Environment</strong> {{ environment }}</span>
           <span><strong>Workspace</strong> {{ workspace }}</span>
@@ -50,7 +69,7 @@
         <section class="panel panel-phases">
           <div class="section-head">
             <h2>Phase Board</h2>
-            <p>Auto-refreshes every 10 seconds.</p>
+            <p>Grouped by the canonical worker lifecycle.</p>
           </div>
           <div class="phase-grid">
             {% for phase in phase_order %}
@@ -62,36 +81,28 @@
               {% if snapshot.by_phase[phase] %}
               <div class="worker-list">
                 {% for worker in snapshot.by_phase[phase] %}
-                <article class="worker-card phase-{{ phase.value }}">
+                {% set freshness = worker_states[worker.worker_id] %}
+                <article class="worker-card phase-{{ phase.value }} freshness-{{ freshness.state }}{% if selected_worker_id == worker.worker_id %} worker-card-selected{% endif %}">
                   <div class="worker-head">
-                    <h4>{{ worker.worker_id }}</h4>
-                    <span class="timestamp">{{ worker.updated_at | relative_time }}</span>
+                    <div>
+                      <a class="worker-link" href="/?worker={{ worker.worker_id }}#control-pane">{{ worker.worker_id }}</a>
+                      <p class="timestamp">{{ worker.updated_at | relative_time }}</p>
+                    </div>
+                    <span class="freshness-pill freshness-pill-{{ freshness.state }}">{{ freshness.label }}</span>
                   </div>
                   <p class="status-line">{{ worker.status_line }}</p>
-                  <dl class="worker-meta">
-                    <div>
-                      <dt>Repo</dt>
-                      <dd><code>{{ worker.repo_path }}</code></dd>
-                    </div>
+                  <div class="chip-row">
                     {% if worker.branch %}
-                    <div>
-                      <dt>Branch</dt>
-                      <dd><code>{{ worker.branch }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>branch</strong> <code>{{ worker.branch }}</code></span>
                     {% endif %}
                     {% if worker.worktree %}
-                    <div>
-                      <dt>Worktree</dt>
-                      <dd><code>{{ worker.worktree }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>worktree</strong> <code>{{ worker.worktree }}</code></span>
                     {% endif %}
                     {% if worker.owned_artifact %}
-                    <div>
-                      <dt>Artifact</dt>
-                      <dd><code>{{ worker.owned_artifact }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>artifact</strong> <code>{{ worker.owned_artifact }}</code></span>
                     {% endif %}
-                  </dl>
+                  </div>
+                  <p class="repo-line"><strong>repo</strong> <code>{{ worker.repo_path }}</code></p>
                   {% if worker.next_irreversible_step %}
                   <p class="next-step"><strong>Next</strong> {{ worker.next_irreversible_step }}</p>
                   {% endif %}
@@ -118,7 +129,273 @@
           </div>
         </section>
 
-        <section class="rail">
+        <section class="rail" id="control-pane">
+          <article class="panel" id="dispatch-pane">
+            <div class="section-head">
+              <h2>General Dispatch</h2>
+              <p>Issue one concrete order and launch a real `codex exec` general prompt.</p>
+            </div>
+            {% if dispatch_status == "launched" %}
+            <div class="banner banner-success">
+              <strong>Launched.</strong> The general order was handed to Codex and logged under `data/dispatches`.
+            </div>
+            {% endif %}
+            {% if dispatch_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ dispatch_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/dispatch" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">General Worker ID</span>
+                  <input name="general_worker_id" value="{{ dispatch_defaults.general_worker_id }}" placeholder="general-20260315-overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch Hint</span>
+                  <input name="branch_hint" value="{{ dispatch_defaults.branch_hint }}" placeholder="feat/localhost-mvp">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ dispatch_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Operator Instruction</span>
+                  <textarea name="operator_instruction" rows="5" placeholder="Finish the localhost MVP, verify it with pytest, and hand back the PR URL." required></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Launch General</button>
+                <p class="muted-text">Overlord writes the prompt to disk, starts `codex exec`, and keeps the log path visible below.</p>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel" id="self-report">
+            <div class="section-head">
+              <h2>Self Report Intake</h2>
+              <p>Delegated workers can post one transition at a time without a separate client.</p>
+            </div>
+            {% if report_status == "accepted" %}
+            <div class="banner banner-success">
+              <strong>Accepted.</strong> The army state was updated and the board will refresh automatically.
+            </div>
+            {% endif %}
+            {% if report_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ report_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/report" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">Worker ID</span>
+                  <input name="worker_id" value="{{ report_defaults.worker_id }}" placeholder="worker-20260315-overlord-agent-a" required>
+                </label>
+                <label>
+                  <span class="label">Worker Token</span>
+                  <input name="worker_token" type="password" placeholder="worker-scoped secret" required>
+                </label>
+                <label>
+                  <span class="label">Current Phase</span>
+                  <select name="current_phase" required>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if selected_worker and selected_worker.phase.value == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span class="label">Previous Phase</span>
+                  <select name="previous_phase">
+                    <option value="">none</option>
+                    {% for phase_value in phase_values %}
+                    <option value="{{ phase_value }}"{% if report_defaults.previous_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Status Line</span>
+                  <input name="status_line" placeholder="patching the handoff-ready summary card" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ report_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch</span>
+                  <input name="branch" value="{{ report_defaults.branch }}" placeholder="feat/overlord-mvp">
+                </label>
+                <label>
+                  <span class="label">Worktree</span>
+                  <input name="worktree" value="{{ report_defaults.worktree }}" placeholder="/tmp/overlord-worker-a">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Owned Artifact</span>
+                  <input name="owned_artifact" value="{{ report_defaults.owned_artifact }}" placeholder="overlord/templates/index.html">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Next Irreversible Step</span>
+                  <input name="next_irreversible_step" placeholder="run pytest and open the MVP PR">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Blocker</span>
+                  <input name="blocker" placeholder="waiting on repo instruction clarification">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Pull Request URL</span>
+                  <input name="pr_url" type="url" placeholder="https://github.com/mvs5465-test/overlord/pull/1">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Short Note</span>
+                  <textarea name="note" rows="3" placeholder="kept the MVP server-rendered and reused the sqlite store"></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Post Self Report</button>
+                <p class="muted-text">Initial registrations use `current_phase=assigned` with `previous_phase=none`.</p>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel control-panel">
+            <div class="section-head">
+              <h2>Control Pane</h2>
+              <p>Selected worker detail, transitions, and phase notes.</p>
+            </div>
+            {% if selected_worker %}
+            {% set selected_freshness = worker_states[selected_worker.worker_id] %}
+            <article class="focus-card freshness-{{ selected_freshness.state }}">
+              <div class="focus-card-head">
+                <div>
+                  <span class="eyebrow">{{ selected_worker.phase.value }}</span>
+                  <h3>{{ selected_worker.worker_id }}</h3>
+                </div>
+                <span class="freshness-pill freshness-pill-{{ selected_freshness.state }}">{{ selected_freshness.label }}</span>
+              </div>
+              <p class="focus-line">{{ selected_worker.status_line }}</p>
+              <div class="focus-grid">
+                <div>
+                  <span class="label">Repo</span>
+                  <p><code>{{ selected_worker.repo_path }}</code></p>
+                </div>
+                <div>
+                  <span class="label">Branch</span>
+                  <p>{% if selected_worker.branch %}<code>{{ selected_worker.branch }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+                <div>
+                  <span class="label">Worktree</span>
+                  <p>{% if selected_worker.worktree %}<code>{{ selected_worker.worktree }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+                <div>
+                  <span class="label">Artifact</span>
+                  <p>{% if selected_worker.owned_artifact %}<code>{{ selected_worker.owned_artifact }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+              </div>
+              {% if selected_worker.next_irreversible_step %}
+              <p class="next-step"><strong>Next irreversible step</strong> {{ selected_worker.next_irreversible_step }}</p>
+              {% endif %}
+              {% if selected_worker.blocker %}
+              <p class="blocker"><strong>Blocker</strong> {{ selected_worker.blocker }}</p>
+              {% endif %}
+              {% if selected_worker.pr_url %}
+              <p class="pr-link"><a href="{{ selected_worker.pr_url }}">Open PR</a></p>
+              {% endif %}
+            </article>
+
+            <div class="detail-section">
+              <div class="section-head section-head-tight">
+                <h3>Phase Trail</h3>
+                <p>{{ selected_worker.transitions | length }} transition{% if selected_worker.transitions | length != 1 %}s{% endif %}</p>
+              </div>
+              <div class="timeline">
+                {% for transition in selected_worker.transitions %}
+                <article class="timeline-card">
+                  <div class="timeline-head">
+                    <div class="timeline-title">
+                      {% if transition.previous_phase %}
+                      <span>{{ transition.previous_phase.value }}</span>
+                      <span class="timeline-arrow">-></span>
+                      {% endif %}
+                      <strong>{{ transition.current_phase.value }}</strong>
+                    </div>
+                    <span class="timestamp">{{ timestamp_format(transition.created_at) }}</span>
+                  </div>
+                  <p>{{ transition.status_line }}</p>
+                  {% if transition.next_irreversible_step %}
+                  <p class="next-step"><strong>Next</strong> {{ transition.next_irreversible_step }}</p>
+                  {% endif %}
+                  {% if transition.blocker %}
+                  <p class="blocker"><strong>Blocker</strong> {{ transition.blocker }}</p>
+                  {% endif %}
+                  {% if transition.note %}
+                  <p class="timeline-note">{{ transition.note }}</p>
+                  {% endif %}
+                </article>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div class="section-head section-head-tight">
+                <h3>Phase Notes</h3>
+                <p>Short notes grouped by phase.</p>
+              </div>
+              {% if selected_phase_notes %}
+              <div class="phase-note-groups">
+                {% for group in selected_phase_notes %}
+                <article class="phase-note-group">
+                  <div class="phase-note-header">
+                    <span class="note-phase">{{ group.phase.value }}</span>
+                    <span class="timestamp">{{ group.notes | length }} note{% if group.notes | length != 1 %}s{% endif %}</span>
+                  </div>
+                  <div class="phase-note-list">
+                    {% for note in group.notes %}
+                    <article class="phase-note-card">
+                      <p class="timestamp">{{ timestamp_format(note.created_at) }}</p>
+                      <p>{{ note.note }}</p>
+                    </article>
+                    {% endfor %}
+                  </div>
+                </article>
+                {% endfor %}
+              </div>
+              {% else %}
+              <p class="empty-state">No phase notes for this worker yet.</p>
+              {% endif %}
+            {% else %}
+            <p class="empty-state">No worker selected yet.</p>
+            {% endif %}
+          </article>
+
+          <article class="panel">
+            <div class="section-head">
+              <h2>Recent Orders</h2>
+              <p>General dispatch history with pid and local log paths.</p>
+            </div>
+            {% if recent_commands %}
+            <div class="note-feed">
+              {% for command in recent_commands %}
+              <article class="feed-card">
+                <div class="worker-head">
+                  <h4>{{ command.general_worker_id }}</h4>
+                  <span class="timestamp">{{ command.created_at | relative_time }}</span>
+                </div>
+                <span class="note-phase">{{ command.status.value }}</span>
+                <p>{{ command.operator_instruction }}</p>
+                <p class="repo-line"><strong>repo</strong> <code>{{ command.repo_path }}</code></p>
+                <p class="repo-line"><strong>pid</strong> <code>{{ command.pid }}</code></p>
+                {% if command.branch_hint %}
+                <p class="repo-line"><strong>branch</strong> <code>{{ command.branch_hint }}</code></p>
+                {% endif %}
+                <p class="repo-line"><strong>log</strong> <code>{{ command.log_path }}</code></p>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-state">No general orders launched yet.</p>
+            {% endif %}
+          </article>
+
           <article class="panel">
             <div class="section-head">
               <h2>Conflict Watch</h2>

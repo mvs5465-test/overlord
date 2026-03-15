@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
@@ -188,3 +189,47 @@ class DashboardSnapshot(BaseModel):
     conflicts: list[ConflictRecord]
     recent_notes: list[WorkerNoteRecord]
     totals: dict[str, int]
+
+
+class DispatchStatus(StrEnum):
+    LAUNCHED = "launched"
+
+
+class OperatorCommandCreate(BaseModel):
+    general_worker_id: str = Field(min_length=3, max_length=120)
+    repo_path: str = Field(min_length=1, max_length=500)
+    branch_hint: str | None = Field(default=None, max_length=255)
+    operator_instruction: str = Field(min_length=1, max_length=4000)
+    created_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("created_at")
+    @classmethod
+    def ensure_created_at_has_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @field_validator("repo_path")
+    @classmethod
+    def normalize_repo_path(cls, value: str) -> str:
+        return str(Path(value).expanduser().resolve())
+
+
+class OperatorCommandLaunch(BaseModel):
+    status: DispatchStatus
+    pid: int
+    prompt_path: str
+    log_path: str
+
+
+class OperatorCommandRecord(BaseModel):
+    id: int
+    general_worker_id: str
+    repo_path: str
+    branch_hint: str | None
+    operator_instruction: str
+    status: DispatchStatus
+    pid: int
+    prompt_path: str
+    log_path: str
+    created_at: datetime
