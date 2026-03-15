@@ -8,7 +8,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from overlord.config import Settings
-from overlord.dashboard import format_relative_time
+from overlord.dashboard import (
+    format_relative_time,
+    format_timestamp,
+    grouped_phase_notes,
+    pick_focus_worker,
+    worker_freshness,
+)
 from overlord.models import PHASE_ORDER, WorkerEventCreate, WorkerNoteCreate, WorkerPhase
 from overlord.store import InvalidTransitionError, StateStore, WorkerAuthError
 
@@ -30,6 +36,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         snapshot = state_store.snapshot()
+        requested_worker_id = request.query_params.get("worker")
+        selected_worker_id = pick_focus_worker(snapshot, requested_worker_id)
+        selected_worker = (
+            state_store.get_worker(selected_worker_id) if selected_worker_id is not None else None
+        )
+        worker_states = {
+            worker.worker_id: worker_freshness(worker.updated_at)
+            for worker in snapshot.workers
+        }
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -41,6 +56,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "allowed_repo_roots": [str(path) for path in settings.allowed_repo_roots],
                 "phase_order": PHASE_ORDER,
                 "snapshot": snapshot,
+                "selected_worker": selected_worker,
+                "selected_worker_id": selected_worker_id,
+                "selected_phase_notes": (
+                    grouped_phase_notes(selected_worker) if selected_worker is not None else []
+                ),
+                "worker_states": worker_states,
+                "timestamp_format": format_timestamp,
             },
         )
 

@@ -37,6 +37,39 @@ def register_worker(client: TestClient, repo_path: Path) -> None:
     assert response.status_code == 201
 
 
+def transition_worker(
+    client: TestClient,
+    repo_path: Path,
+    *,
+    phase: str,
+    previous_phase: str,
+    status_line: str,
+    next_step: str | None = None,
+    note: str | None = None,
+    blocker: str | None = None,
+) -> None:
+    payload = {
+        "worker_id": "worker-123",
+        "worker_token": "secret-worker-token",
+        "current_phase": phase,
+        "previous_phase": previous_phase,
+        "repo_path": str(repo_path),
+        "branch": "feat/control-plane-mvp",
+        "worktree": str(repo_path / "worktree-1"),
+        "owned_artifact": "overlord/app.py",
+        "status_line": status_line,
+    }
+    if next_step:
+        payload["next_irreversible_step"] = next_step
+    if note:
+        payload["note"] = note
+    if blocker:
+        payload["blocker"] = blocker
+
+    response = client.post("/api/workers/events", json=payload)
+    assert response.status_code == 201
+
+
 def test_healthz(tmp_path: Path) -> None:
     client = build_client(tmp_path)
     response = client.get("/healthz")
@@ -59,13 +92,34 @@ def test_meta_endpoint_exposes_control_plane_defaults(tmp_path: Path) -> None:
 def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     client = build_client(tmp_path)
     register_worker(client, tmp_path)
+    transition_worker(
+        client,
+        tmp_path,
+        phase="scouting",
+        previous_phase="assigned",
+        status_line="reading repo instructions and app shape",
+        next_step="lock the ui artifact boundary",
+        note="reviewed app, store, and current operator board",
+    )
+    transition_worker(
+        client,
+        tmp_path,
+        phase="planned",
+        previous_phase="scouting",
+        status_line="scoped the server-rendered ui slice",
+        next_step="patch template and styles together",
+        note="keeping api and persistence untouched",
+    )
 
     response = client.get("/")
 
     assert response.status_code == 200
     assert "Localhost control plane" in response.text
     assert "worker-123" in response.text
-    assert "claiming backend slice" in response.text
+    assert "Control Pane" in response.text
+    assert "Phase Trail" in response.text
+    assert "Phase Notes" in response.text
+    assert "keeping api and persistence untouched" in response.text
 
 
 def test_worker_event_persists_and_project_current_state(tmp_path: Path) -> None:
@@ -193,6 +247,32 @@ def test_conflicts_are_reported_for_shared_branch(tmp_path: Path) -> None:
     assert response.status_code == 200
     conflicts = response.json()["conflicts"]
     assert any(conflict["field"] == "branch" for conflict in conflicts)
+
+
+def test_homepage_focuses_requested_worker_in_control_pane(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+    register_worker(client, tmp_path)
+    client.post(
+        "/api/workers/events",
+        json={
+            "worker_id": "worker-456",
+            "worker_token": "token-456789",
+            "current_phase": "assigned",
+            "previous_phase": None,
+            "repo_path": str(tmp_path),
+            "branch": "feat/ui-slice",
+            "worktree": str(tmp_path / "worktree-2"),
+            "owned_artifact": "overlord/templates/index.html",
+            "status_line": "claiming ui slice",
+            "note": "ready to build the operator surface",
+        },
+    )
+
+    response = client.get("/?worker=worker-456")
+
+    assert response.status_code == 200
+    assert "claiming ui slice" in response.text
+    assert "ready to build the operator surface" in response.text
 
 
 def test_worker_status_cli_builds_event_payload_with_abs_repo_path(tmp_path: Path) -> None:

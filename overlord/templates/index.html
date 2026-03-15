@@ -14,12 +14,30 @@
     <main class="shell">
       <section class="hero">
         <div class="hero-copy">
-          <span class="eyebrow">Localhost control plane</span>
-          <h1>{{ app_name }}</h1>
-          <p class="lede">
-            Durable worker state, validated phase transitions, short phase notes, and one small operator board.
-          </p>
+          <div class="hero-topline">
+            <span class="eyebrow">Localhost control plane</span>
+            <span class="refresh-pill">refreshes every 10s</span>
+          </div>
+          <div class="hero-main">
+            <div>
+              <h1>{{ app_name }}</h1>
+              <p class="lede">
+                Durable worker state, validated phase transitions, short phase notes, and an operator board that stays worth keeping open.
+              </p>
+            </div>
+            <div class="focus-summary">
+              <span class="label">Control Focus</span>
+              {% if selected_worker %}
+              <p class="focus-worker">{{ selected_worker.worker_id }}</p>
+              <p class="focus-line">{{ selected_worker.status_line }}</p>
+              {% else %}
+              <p class="focus-worker">No workers yet</p>
+              <p class="focus-line">Post a worker transition to populate the board.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
+
         <div class="summary-grid">
           <article class="summary-card">
             <span class="label">Workers</span>
@@ -38,6 +56,7 @@
             <p class="metric">{{ snapshot.totals.handoff_ready }}</p>
           </article>
         </div>
+
         <div class="meta-strip">
           <span><strong>Environment</strong> {{ environment }}</span>
           <span><strong>Workspace</strong> {{ workspace }}</span>
@@ -50,7 +69,7 @@
         <section class="panel panel-phases">
           <div class="section-head">
             <h2>Phase Board</h2>
-            <p>Auto-refreshes every 10 seconds.</p>
+            <p>Grouped by the canonical worker lifecycle.</p>
           </div>
           <div class="phase-grid">
             {% for phase in phase_order %}
@@ -62,36 +81,28 @@
               {% if snapshot.by_phase[phase] %}
               <div class="worker-list">
                 {% for worker in snapshot.by_phase[phase] %}
-                <article class="worker-card phase-{{ phase.value }}">
+                {% set freshness = worker_states[worker.worker_id] %}
+                <article class="worker-card phase-{{ phase.value }} freshness-{{ freshness.state }}{% if selected_worker_id == worker.worker_id %} worker-card-selected{% endif %}">
                   <div class="worker-head">
-                    <h4>{{ worker.worker_id }}</h4>
-                    <span class="timestamp">{{ worker.updated_at | relative_time }}</span>
+                    <div>
+                      <a class="worker-link" href="/?worker={{ worker.worker_id }}#control-pane">{{ worker.worker_id }}</a>
+                      <p class="timestamp">{{ worker.updated_at | relative_time }}</p>
+                    </div>
+                    <span class="freshness-pill freshness-pill-{{ freshness.state }}">{{ freshness.label }}</span>
                   </div>
                   <p class="status-line">{{ worker.status_line }}</p>
-                  <dl class="worker-meta">
-                    <div>
-                      <dt>Repo</dt>
-                      <dd><code>{{ worker.repo_path }}</code></dd>
-                    </div>
+                  <div class="chip-row">
                     {% if worker.branch %}
-                    <div>
-                      <dt>Branch</dt>
-                      <dd><code>{{ worker.branch }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>branch</strong> <code>{{ worker.branch }}</code></span>
                     {% endif %}
                     {% if worker.worktree %}
-                    <div>
-                      <dt>Worktree</dt>
-                      <dd><code>{{ worker.worktree }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>worktree</strong> <code>{{ worker.worktree }}</code></span>
                     {% endif %}
                     {% if worker.owned_artifact %}
-                    <div>
-                      <dt>Artifact</dt>
-                      <dd><code>{{ worker.owned_artifact }}</code></dd>
-                    </div>
+                    <span class="meta-chip"><strong>artifact</strong> <code>{{ worker.owned_artifact }}</code></span>
                     {% endif %}
-                  </dl>
+                  </div>
+                  <p class="repo-line"><strong>repo</strong> <code>{{ worker.repo_path }}</code></p>
                   {% if worker.next_irreversible_step %}
                   <p class="next-step"><strong>Next</strong> {{ worker.next_irreversible_step }}</p>
                   {% endif %}
@@ -118,7 +129,117 @@
           </div>
         </section>
 
-        <section class="rail">
+        <section class="rail" id="control-pane">
+          <article class="panel control-panel">
+            <div class="section-head">
+              <h2>Control Pane</h2>
+              <p>Selected worker detail, transitions, and phase notes.</p>
+            </div>
+            {% if selected_worker %}
+            {% set selected_freshness = worker_states[selected_worker.worker_id] %}
+            <article class="focus-card freshness-{{ selected_freshness.state }}">
+              <div class="focus-card-head">
+                <div>
+                  <span class="eyebrow">{{ selected_worker.phase.value }}</span>
+                  <h3>{{ selected_worker.worker_id }}</h3>
+                </div>
+                <span class="freshness-pill freshness-pill-{{ selected_freshness.state }}">{{ selected_freshness.label }}</span>
+              </div>
+              <p class="focus-line">{{ selected_worker.status_line }}</p>
+              <div class="focus-grid">
+                <div>
+                  <span class="label">Repo</span>
+                  <p><code>{{ selected_worker.repo_path }}</code></p>
+                </div>
+                <div>
+                  <span class="label">Branch</span>
+                  <p>{% if selected_worker.branch %}<code>{{ selected_worker.branch }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+                <div>
+                  <span class="label">Worktree</span>
+                  <p>{% if selected_worker.worktree %}<code>{{ selected_worker.worktree }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+                <div>
+                  <span class="label">Artifact</span>
+                  <p>{% if selected_worker.owned_artifact %}<code>{{ selected_worker.owned_artifact }}</code>{% else %}<span class="muted-text">none</span>{% endif %}</p>
+                </div>
+              </div>
+              {% if selected_worker.next_irreversible_step %}
+              <p class="next-step"><strong>Next irreversible step</strong> {{ selected_worker.next_irreversible_step }}</p>
+              {% endif %}
+              {% if selected_worker.blocker %}
+              <p class="blocker"><strong>Blocker</strong> {{ selected_worker.blocker }}</p>
+              {% endif %}
+              {% if selected_worker.pr_url %}
+              <p class="pr-link"><a href="{{ selected_worker.pr_url }}">Open PR</a></p>
+              {% endif %}
+            </article>
+
+            <div class="detail-section">
+              <div class="section-head section-head-tight">
+                <h3>Phase Trail</h3>
+                <p>{{ selected_worker.transitions | length }} transition{% if selected_worker.transitions | length != 1 %}s{% endif %}</p>
+              </div>
+              <div class="timeline">
+                {% for transition in selected_worker.transitions %}
+                <article class="timeline-card">
+                  <div class="timeline-head">
+                    <div class="timeline-title">
+                      {% if transition.previous_phase %}
+                      <span>{{ transition.previous_phase.value }}</span>
+                      <span class="timeline-arrow">-></span>
+                      {% endif %}
+                      <strong>{{ transition.current_phase.value }}</strong>
+                    </div>
+                    <span class="timestamp">{{ timestamp_format(transition.created_at) }}</span>
+                  </div>
+                  <p>{{ transition.status_line }}</p>
+                  {% if transition.next_irreversible_step %}
+                  <p class="next-step"><strong>Next</strong> {{ transition.next_irreversible_step }}</p>
+                  {% endif %}
+                  {% if transition.blocker %}
+                  <p class="blocker"><strong>Blocker</strong> {{ transition.blocker }}</p>
+                  {% endif %}
+                  {% if transition.note %}
+                  <p class="timeline-note">{{ transition.note }}</p>
+                  {% endif %}
+                </article>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div class="section-head section-head-tight">
+                <h3>Phase Notes</h3>
+                <p>Short notes grouped by phase.</p>
+              </div>
+              {% if selected_phase_notes %}
+              <div class="phase-note-groups">
+                {% for group in selected_phase_notes %}
+                <article class="phase-note-group">
+                  <div class="phase-note-header">
+                    <span class="note-phase">{{ group.phase.value }}</span>
+                    <span class="timestamp">{{ group.notes | length }} note{% if group.notes | length != 1 %}s{% endif %}</span>
+                  </div>
+                  <div class="phase-note-list">
+                    {% for note in group.notes %}
+                    <article class="phase-note-card">
+                      <p class="timestamp">{{ timestamp_format(note.created_at) }}</p>
+                      <p>{{ note.note }}</p>
+                    </article>
+                    {% endfor %}
+                  </div>
+                </article>
+                {% endfor %}
+              </div>
+              {% else %}
+              <p class="empty-state">No phase notes for this worker yet.</p>
+              {% endif %}
+            {% else %}
+            <p class="empty-state">No worker selected yet.</p>
+            {% endif %}
+          </article>
+
           <article class="panel">
             <div class="section-head">
               <h2>Conflict Watch</h2>
