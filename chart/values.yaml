@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/mvs5465-test/overlord
+  repository: ghcr.io/your-org/overlord
   tag: "main"
   pullPolicy: Always
 
@@ -45,4 +45,3 @@ storage:
 nodeSelector: {}
 tolerations: []
 affinity: {}
-
