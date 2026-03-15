@@ -10,12 +10,9 @@ from fastapi.templating import Jinja2Templates
 
 from overlord.config import Settings
 from overlord.dashboard import (
-    build_network_clusters,
+    build_supervision_view,
     format_relative_time,
     format_timestamp,
-    grouped_phase_notes,
-    pick_focus_worker,
-    worker_freshness,
 )
 from overlord.dispatcher import CodexDispatcher, DispatchLaunchError
 from overlord.models import (
@@ -236,15 +233,21 @@ def _render_dashboard(
 ) -> HTMLResponse:
     snapshot = state_store.snapshot()
     recent_commands = state_store.list_commands()
-    requested_worker_id = request.query_params.get("worker")
-    selected_worker_id = pick_focus_worker(snapshot, requested_worker_id)
-    selected_worker = (
-        state_store.get_worker(selected_worker_id) if selected_worker_id is not None else None
-    )
-    worker_states = {
-        worker.worker_id: worker_freshness(worker.updated_at)
+    worker_details = {
+        worker.worker_id: state_store.get_worker(worker.worker_id)
         for worker in snapshot.workers
     }
+    supervision = build_supervision_view(
+        snapshot,
+        worker_details,
+        recent_commands,
+        requested_worker_id=request.query_params.get("worker"),
+        requested_mission_id=request.query_params.get("mission"),
+        search_query=request.query_params.get("q", ""),
+        current_view=request.query_params.get("view", "missions"),
+        saved_view=request.query_params.get("saved_view", "all-active"),
+    )
+    selected_worker = supervision["selected_worker"]
     report_defaults = {
         "worker_id": selected_worker.worker_id if selected_worker else "",
         "current_phase": (
@@ -281,16 +284,9 @@ def _render_dashboard(
             "snapshot": snapshot,
             "recent_commands": recent_commands,
             "selected_worker": selected_worker,
-            "selected_worker_id": selected_worker_id,
-            "selected_phase_notes": (
-                grouped_phase_notes(selected_worker) if selected_worker is not None else []
-            ),
-            "worker_states": worker_states,
-            "network_clusters": build_network_clusters(
-                snapshot,
-                worker_states,
-                selected_worker_id,
-            ),
+            "selected_worker_id": supervision["selected_worker_id"],
+            "selected_phase_notes": supervision["selected_worker_notes"],
+            "supervision": supervision,
             "timestamp_format": format_timestamp,
             "report_status": request.query_params.get("report"),
             "report_error": request.query_params.get("error"),

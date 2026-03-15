@@ -130,13 +130,16 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Command theater" in response.text
+    assert "Mission supervision" in response.text
+    assert "Mission Workspace" in response.text
+    assert "Mission Table" in response.text
+    assert "Attention Queue" in response.text
     assert "worker-123" in response.text
-    assert "Battle Network" in response.text
-    assert "Focus Dossier" in response.text
+    assert "Worker Dossier" in response.text
+    assert "merge ladder" in response.text.lower()
     assert "Self Report Intake" in response.text
-    assert "General Dispatch" in response.text
-    assert "Phase Trail" in response.text
+    assert "Dispatch" in response.text
+    assert "Mission Timeline" in response.text
     assert "Phase Notes" in response.text
     assert "keeping api and persistence untouched" in response.text
 
@@ -158,6 +161,73 @@ def test_selected_worker_prefills_a_valid_next_transition(tmp_path: Path) -> Non
     assert response.status_code == 200
     assert '<option value="planned" selected>planned</option>' in response.text
     assert '<option value="scouting" selected>scouting</option>' in response.text
+
+
+def test_search_and_saved_view_keep_mission_focus(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+    register_worker(client, tmp_path)
+    transition_worker(
+        client,
+        tmp_path,
+        phase="scouting",
+        previous_phase="assigned",
+        status_line="reading repo instructions and app shape",
+        next_step="map mission grouping",
+        note="status is fresh and should appear in all active",
+    )
+    client.post(
+        "/api/workers/events",
+        json={
+            "worker_id": "worker-456",
+            "worker_token": "second-secret-token",
+            "current_phase": "assigned",
+            "previous_phase": None,
+            "repo_path": str(tmp_path / "second-repo"),
+            "status_line": "waiting in another repo",
+        },
+    )
+
+    response = client.get("/?view=missions&saved_view=all-active&q=worker-123")
+
+    assert response.status_code == 200
+    assert "worker-123" in response.text
+    assert "worker-456" not in response.text
+    assert "Saved Views" in response.text
+
+
+def test_merge_and_conflict_signals_render_in_mission_view(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+    register_worker(client, tmp_path)
+    transition_worker(
+        client,
+        tmp_path,
+        phase="scouting",
+        previous_phase="assigned",
+        status_line="reading repo instructions and app shape",
+        next_step="open a PR for review",
+    )
+    client.post(
+        "/api/workers/events",
+        json={
+            "worker_id": "worker-789",
+            "worker_token": "third-secret-token",
+            "current_phase": "assigned",
+            "previous_phase": None,
+            "repo_path": str(tmp_path),
+            "branch": "feat/control-plane-mvp",
+            "worktree": str(tmp_path / "worktree-2"),
+            "owned_artifact": "overlord/app.py",
+            "status_line": "approved and ready to merge",
+            "pr_url": "https://github.com/mvs5465-test/overlord/pull/9",
+        },
+    )
+
+    response = client.get("/?view=conflicts&saved_view=all-active")
+
+    assert response.status_code == 200
+    assert "approved" in response.text
+    assert "Conflicts" in response.text
+    assert "feat/control-plane-mvp" in response.text
 
 
 def test_worker_event_persists_and_project_current_state(tmp_path: Path) -> None:
