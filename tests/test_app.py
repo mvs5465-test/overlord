@@ -131,15 +131,13 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Mission supervision" in response.text
-    assert "Mission Workspace" in response.text
     assert "Mission Table" in response.text
-    assert "Attention Queue" in response.text
     assert "worker-123" in response.text
-    assert "Worker Dossier" in response.text
+    assert "Worker Detail" in response.text
     assert "merge ladder" in response.text.lower()
     assert "Self Report Intake" in response.text
     assert "Dispatch" in response.text
-    assert "Mission Timeline" in response.text
+    assert "Timeline" in response.text
     assert "Phase Notes" in response.text
     assert "keeping api and persistence untouched" in response.text
 
