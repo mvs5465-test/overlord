@@ -13,7 +13,8 @@
 - Preserve the current lightweight FastAPI plus server-rendered HTML approach unless a larger architecture change is explicitly requested.
 - Keep dependencies minimal and avoid introducing frontend build tooling unless there is a concrete need.
 - Prefer keeping localhost-first defaults safe and explicit: bind to loopback by default and store local state under `./data`.
-- Treat worker orchestration, persistence, and remote integrations as future implementation work; keep placeholders honest rather than speculative.
+- Treat the local `codex-general` and `codex-captain` skillbooks under `/Users/matthewschwartz/.codex/skills` as the source of truth for the GENERAL/CAPTAIN execution contract.
+- Keep repo-local guidance lightweight: this repo already ships durable local worker state and worker-status APIs, while broader dispatch/orchestration rules should stay in the skillbooks instead of being redefined here.
 
 ## Helm And Releases
 - If a PR changes anything under `chart/`, bump `chart/Chart.yaml` `version` in the same PR.
@@ -23,4 +24,3 @@
 ## Verification
 - Run `pytest` for app changes.
 - Run `helm template overlord ./chart` for chart changes.
-
