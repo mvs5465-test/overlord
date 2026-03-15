@@ -1,0 +1,48 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mvs5465-test/overlord
+  tag: "main"
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  path: /
+  pathType: Prefix
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+env:
+  OVERLORD_APP_NAME: "Overlord"
+  OVERLORD_DATA_DIR: "/data"
+  OVERLORD_DEFAULT_ENVIRONMENT: "cluster"
+  OVERLORD_DEFAULT_WORKSPACE: "operations"
+  HOST: "0.0.0.0"
+  PORT: "8080"
+
+storage:
+  enabled: true
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+

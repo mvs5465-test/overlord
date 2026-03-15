@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_name }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <span class="eyebrow">Scaffold ready</span>
+        <h1>{{ app_name }} keeps the localhost control plane small on purpose.</h1>
+        <p class="lede">
+          This repo starts with a durable shell for a future agent coordination app:
+          local-first defaults, a simple web surface, deployable packaging, and clear seams for
+          worker state, task routing, and orchestration logic.
+        </p>
+
+        <div class="meta-grid">
+          <article class="meta-card">
+            <span class="label">Default Environment</span>
+            <p class="value">{{ environment }}</p>
+          </article>
+          <article class="meta-card">
+            <span class="label">Default Workspace</span>
+            <p class="value">{{ workspace }}</p>
+          </article>
+          <article class="meta-card">
+            <span class="label">Data Directory</span>
+            <p class="value"><code>{{ data_dir }}</code></p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>What exists now</h2>
+          <span class="pill">0.1.0 scaffold</span>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <span class="label">Runtime</span>
+            <ul>
+              <li>FastAPI app with local defaults and a server-rendered UI.</li>
+              <li><code>/healthz</code> and <code>/api/meta</code> for quick validation.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <span class="label">Packaging</span>
+            <ul>
+              <li>Python packaging via <code>pyproject.toml</code>.</li>
+              <li>Docker and Helm baselines aligned with the other local cluster apps.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <span class="label">Next build-out</span>
+            <ul>
+              <li>Worker registry and status model.</li>
+              <li>Durable task and event storage.</li>
+              <li>Coordination flows for humans and delegated agents.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+
