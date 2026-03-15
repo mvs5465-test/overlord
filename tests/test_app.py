@@ -141,6 +141,25 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     assert "keeping api and persistence untouched" in response.text
 
 
+def test_selected_worker_prefills_a_valid_next_transition(tmp_path: Path) -> None:
+    client = build_client(tmp_path)
+    register_worker(client, tmp_path)
+    transition_worker(
+        client,
+        tmp_path,
+        phase="scouting",
+        previous_phase="assigned",
+        status_line="reading repo instructions and app shape",
+        next_step="lock the ui artifact boundary",
+    )
+
+    response = client.get("/?worker=worker-123")
+
+    assert response.status_code == 200
+    assert '<option value="planned" selected>planned</option>' in response.text
+    assert '<option value="scouting" selected>scouting</option>' in response.text
+
+
 def test_worker_event_persists_and_project_current_state(tmp_path: Path) -> None:
     client = build_client(tmp_path)
     register_worker(client, tmp_path)

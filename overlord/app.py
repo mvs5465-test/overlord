@@ -19,6 +19,7 @@ from overlord.dashboard import (
 )
 from overlord.dispatcher import CodexDispatcher, DispatchLaunchError
 from overlord.models import (
+    ALLOWED_TRANSITIONS,
     PHASE_ORDER,
     OperatorCommandCreate,
     WorkerEventCreate,
@@ -246,6 +247,11 @@ def _render_dashboard(
     }
     report_defaults = {
         "worker_id": selected_worker.worker_id if selected_worker else "",
+        "current_phase": (
+            _default_report_current_phase(selected_worker.phase)
+            if selected_worker
+            else WorkerPhase.ASSIGNED.value
+        ),
         "repo_path": selected_worker.repo_path if selected_worker else "",
         "branch": selected_worker.branch if selected_worker and selected_worker.branch else "",
         "worktree": selected_worker.worktree if selected_worker and selected_worker.worktree else "",
@@ -254,9 +260,7 @@ def _render_dashboard(
             if selected_worker and selected_worker.owned_artifact
             else ""
         ),
-        "previous_phase": (
-            selected_worker.phase.value if selected_worker else WorkerPhase.ASSIGNED.value
-        ),
+        "previous_phase": selected_worker.phase.value if selected_worker else "",
     }
     dispatch_defaults = {
         "general_worker_id": request.query_params.get("general") or "general-local-1",
@@ -346,3 +350,20 @@ def _ensure_repo_path_allowed(settings: Settings, repo_path: str) -> None:
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail=f"repo_path must be inside allowed roots: {allowed}",
     )
+
+
+def _default_report_current_phase(current_phase: WorkerPhase) -> str:
+    preferred_order = [
+        WorkerPhase.SCOUTING,
+        WorkerPhase.PLANNED,
+        WorkerPhase.IMPLEMENTING,
+        WorkerPhase.VALIDATING,
+        WorkerPhase.HANDOFF_READY,
+        WorkerPhase.BLOCKED,
+        WorkerPhase.TERMINAL,
+    ]
+    allowed = ALLOWED_TRANSITIONS[current_phase]
+    for phase in preferred_order:
+        if phase in allowed:
+            return phase.value
+    return current_phase.value

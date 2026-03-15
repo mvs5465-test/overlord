@@ -399,7 +399,7 @@
                   <span class="label">Current Phase</span>
                   <select name="current_phase" required>
                     {% for phase_value in phase_values %}
-                    <option value="{{ phase_value }}"{% if selected_worker and selected_worker.phase.value == phase_value %} selected{% endif %}>{{ phase_value }}</option>
+                    <option value="{{ phase_value }}"{% if report_defaults.current_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
                     {% endfor %}
                   </select>
                 </label>
