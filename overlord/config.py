@@ -11,10 +11,22 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("data"), alias="OVERLORD_DATA_DIR")
     default_environment: str = Field(default="local", alias="OVERLORD_DEFAULT_ENVIRONMENT")
     default_workspace: str = Field(default="default", alias="OVERLORD_DEFAULT_WORKSPACE")
-    worker_write_token: str | None = Field(default=None, alias="OVERLORD_WORKER_WRITE_TOKEN")
+    allowed_repo_roots_raw: str = Field(
+        default="~/projects",
+        alias="OVERLORD_ALLOWED_REPO_ROOTS",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         populate_by_name=True,
     )
+
+    @property
+    def allowed_repo_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        for raw_value in self.allowed_repo_roots_raw.split(","):
+            stripped = raw_value.strip()
+            if stripped:
+                roots.append(Path(stripped).expanduser().resolve())
+        return roots

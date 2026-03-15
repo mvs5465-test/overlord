@@ -3,70 +3,166 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="10">
     <title>{{ app_name }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Instrument+Serif&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
   </head>
   <body>
     <main class="shell">
       <section class="hero">
-        <span class="eyebrow">Scaffold ready</span>
-        <h1>{{ app_name }} keeps the localhost control plane small on purpose.</h1>
-        <p class="lede">
-          This repo starts with a durable shell for a future agent coordination app:
-          local-first defaults, a simple web surface, deployable packaging, and clear seams for
-          worker state, task routing, and orchestration logic.
-        </p>
-
-        <div class="meta-grid">
-          <article class="meta-card">
-            <span class="label">Default Environment</span>
-            <p class="value">{{ environment }}</p>
+        <div class="hero-copy">
+          <span class="eyebrow">Localhost control plane</span>
+          <h1>{{ app_name }}</h1>
+          <p class="lede">
+            Durable worker state, validated phase transitions, short phase notes, and one small operator board.
+          </p>
+        </div>
+        <div class="summary-grid">
+          <article class="summary-card">
+            <span class="label">Workers</span>
+            <p class="metric">{{ snapshot.totals.workers }}</p>
           </article>
-          <article class="meta-card">
-            <span class="label">Default Workspace</span>
-            <p class="value">{{ workspace }}</p>
+          <article class="summary-card">
+            <span class="label">Active</span>
+            <p class="metric">{{ snapshot.totals.active }}</p>
           </article>
-          <article class="meta-card">
-            <span class="label">Data Directory</span>
-            <p class="value"><code>{{ data_dir }}</code></p>
+          <article class="summary-card summary-card-alert">
+            <span class="label">Blocked</span>
+            <p class="metric">{{ snapshot.totals.blocked }}</p>
           </article>
+          <article class="summary-card">
+            <span class="label">Handoff Ready</span>
+            <p class="metric">{{ snapshot.totals.handoff_ready }}</p>
+          </article>
+        </div>
+        <div class="meta-strip">
+          <span><strong>Environment</strong> {{ environment }}</span>
+          <span><strong>Workspace</strong> {{ workspace }}</span>
+          <span><strong>State</strong> <code>{{ data_dir }}/overlord.db</code></span>
+          <span><strong>Allowlist</strong> <code>{{ allowed_repo_roots | join(", ") }}</code></span>
         </div>
       </section>
 
-      <section class="section">
-        <div class="section-head">
-          <h2>What exists now</h2>
-          <span class="pill">0.1.0 scaffold</span>
-        </div>
-        <div class="cards">
-          <article class="card">
-            <span class="label">Runtime</span>
-            <ul>
-              <li>FastAPI app with local defaults and a server-rendered UI.</li>
-              <li><code>/healthz</code> and <code>/api/meta</code> for quick validation.</li>
-            </ul>
+      <section class="panel-stack">
+        <section class="panel panel-phases">
+          <div class="section-head">
+            <h2>Phase Board</h2>
+            <p>Auto-refreshes every 10 seconds.</p>
+          </div>
+          <div class="phase-grid">
+            {% for phase in phase_order %}
+            <article class="phase-column">
+              <div class="phase-header">
+                <h3>{{ phase.value }}</h3>
+                <span class="pill">{{ snapshot.by_phase[phase] | length }}</span>
+              </div>
+              {% if snapshot.by_phase[phase] %}
+              <div class="worker-list">
+                {% for worker in snapshot.by_phase[phase] %}
+                <article class="worker-card phase-{{ phase.value }}">
+                  <div class="worker-head">
+                    <h4>{{ worker.worker_id }}</h4>
+                    <span class="timestamp">{{ worker.updated_at | relative_time }}</span>
+                  </div>
+                  <p class="status-line">{{ worker.status_line }}</p>
+                  <dl class="worker-meta">
+                    <div>
+                      <dt>Repo</dt>
+                      <dd><code>{{ worker.repo_path }}</code></dd>
+                    </div>
+                    {% if worker.branch %}
+                    <div>
+                      <dt>Branch</dt>
+                      <dd><code>{{ worker.branch }}</code></dd>
+                    </div>
+                    {% endif %}
+                    {% if worker.worktree %}
+                    <div>
+                      <dt>Worktree</dt>
+                      <dd><code>{{ worker.worktree }}</code></dd>
+                    </div>
+                    {% endif %}
+                    {% if worker.owned_artifact %}
+                    <div>
+                      <dt>Artifact</dt>
+                      <dd><code>{{ worker.owned_artifact }}</code></dd>
+                    </div>
+                    {% endif %}
+                  </dl>
+                  {% if worker.next_irreversible_step %}
+                  <p class="next-step"><strong>Next</strong> {{ worker.next_irreversible_step }}</p>
+                  {% endif %}
+                  {% if worker.blocker %}
+                  <p class="blocker"><strong>Blocker</strong> {{ worker.blocker }}</p>
+                  {% endif %}
+                  {% if worker.last_note %}
+                  <div class="note">
+                    <span class="note-phase">{{ worker.last_note.phase.value }}</span>
+                    <p>{{ worker.last_note.note }}</p>
+                  </div>
+                  {% endif %}
+                  {% if worker.pr_url %}
+                  <p class="pr-link"><a href="{{ worker.pr_url }}">PR</a></p>
+                  {% endif %}
+                </article>
+                {% endfor %}
+              </div>
+              {% else %}
+              <p class="empty-state">No workers in this phase.</p>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="rail">
+          <article class="panel">
+            <div class="section-head">
+              <h2>Conflict Watch</h2>
+              <p>Repo, branch, worktree, and artifact overlaps.</p>
+            </div>
+            {% if snapshot.conflicts %}
+            <div class="conflict-list">
+              {% for conflict in snapshot.conflicts %}
+              <article class="conflict-card">
+                <span class="label">{{ conflict.field }}</span>
+                <p><code>{{ conflict.value }}</code></p>
+                <p>{{ conflict.worker_ids | join(", ") }}</p>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-state">No active ownership conflicts.</p>
+            {% endif %}
           </article>
-          <article class="card">
-            <span class="label">Packaging</span>
-            <ul>
-              <li>Python packaging via <code>pyproject.toml</code>.</li>
-              <li>Docker and Helm baselines aligned with the other local cluster apps.</li>
-            </ul>
+
+          <article class="panel">
+            <div class="section-head">
+              <h2>Recent Notes</h2>
+              <p>Short phase breadcrumbs, not a chat log.</p>
+            </div>
+            {% if snapshot.recent_notes %}
+            <div class="note-feed">
+              {% for note in snapshot.recent_notes %}
+              <article class="feed-card">
+                <div class="worker-head">
+                  <h4>{{ note.worker_id }}</h4>
+                  <span class="timestamp">{{ note.created_at | relative_time }}</span>
+                </div>
+                <span class="note-phase">{{ note.phase.value }}</span>
+                <p>{{ note.note }}</p>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-state">No notes yet.</p>
+            {% endif %}
           </article>
-          <article class="card">
-            <span class="label">Next build-out</span>
-            <ul>
-              <li>Worker registry and status model.</li>
-              <li>Durable task and event storage.</li>
-              <li>Coordination flows for humans and delegated agents.</li>
-            </ul>
-          </article>
-        </div>
+        </section>
       </section>
     </main>
   </body>
 </html>
-
