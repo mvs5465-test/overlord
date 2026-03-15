@@ -11,6 +11,9 @@ from overlord.models import (
     PHASE_ORDER,
     ConflictRecord,
     DashboardSnapshot,
+    OperatorCommandCreate,
+    OperatorCommandLaunch,
+    OperatorCommandRecord,
     WorkerDetail,
     WorkerEventCreate,
     WorkerEventRecord,
@@ -87,6 +90,19 @@ class StateStore:
                     note TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS operator_commands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    general_worker_id TEXT NOT NULL,
+                    repo_path TEXT NOT NULL,
+                    branch_hint TEXT,
+                    operator_instruction TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    pid INTEGER NOT NULL,
+                    prompt_path TEXT NOT NULL,
+                    log_path TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 );
                 """
             )
@@ -218,6 +234,58 @@ class StateStore:
             note=note.note,
             created_at=note.timestamp,
         )
+
+    def record_command(
+        self,
+        command: OperatorCommandCreate,
+        launch: OperatorCommandLaunch,
+    ) -> OperatorCommandRecord:
+        with _connect(self.db_path) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO operator_commands (
+                    general_worker_id, repo_path, branch_hint, operator_instruction,
+                    status, pid, prompt_path, log_path, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    command.general_worker_id,
+                    command.repo_path,
+                    command.branch_hint,
+                    command.operator_instruction,
+                    launch.status.value,
+                    launch.pid,
+                    launch.prompt_path,
+                    launch.log_path,
+                    command.created_at.isoformat(),
+                ),
+            )
+
+        return OperatorCommandRecord(
+            id=cursor.lastrowid,
+            general_worker_id=command.general_worker_id,
+            repo_path=command.repo_path,
+            branch_hint=command.branch_hint,
+            operator_instruction=command.operator_instruction,
+            status=launch.status,
+            pid=launch.pid,
+            prompt_path=launch.prompt_path,
+            log_path=launch.log_path,
+            created_at=command.created_at,
+        )
+
+    def list_commands(self, limit: int = 12) -> list[OperatorCommandRecord]:
+        with _connect(self.db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM operator_commands
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [self._row_to_command(row) for row in rows]
 
     def get_worker(self, worker_id: str) -> WorkerDetail:
         with _connect(self.db_path) as connection:
@@ -395,6 +463,20 @@ class StateStore:
             worker_id=row["worker_id"],
             phase=WorkerPhase(row["phase"]),
             note=row["note"],
+            created_at=self._parse_timestamp(row["created_at"]),
+        )
+
+    def _row_to_command(self, row: sqlite3.Row) -> OperatorCommandRecord:
+        return OperatorCommandRecord(
+            id=row["id"],
+            general_worker_id=row["general_worker_id"],
+            repo_path=row["repo_path"],
+            branch_hint=row["branch_hint"],
+            operator_instruction=row["operator_instruction"],
+            status=row["status"],
+            pid=row["pid"],
+            prompt_path=row["prompt_path"],
+            log_path=row["log_path"],
             created_at=self._parse_timestamp(row["created_at"]),
         )
 

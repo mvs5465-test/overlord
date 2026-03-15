@@ -12,6 +12,7 @@ This repo now ships the first real MVP slice: a small FastAPI control plane with
 - validated worker phase transitions and short phase notes
 - worker roster and worker detail APIs
 - form-based self-report intake on the dashboard for manual delegated-worker updates
+- form-based general dispatch that launches a real local `codex exec` command
 - Python packaging via `pyproject.toml`
 - Dockerfile for containerizing the app
 - Helm chart aligned with the user's other local cluster app repos
@@ -32,8 +33,11 @@ Useful endpoints:
 - `POST /report`
 - `GET /healthz`
 - `GET /api/meta`
+- `POST /dispatch`
 - `POST /api/workers/events`
 - `POST /api/workers/{worker_id}/notes`
+- `POST /api/commands`
+- `GET /api/commands`
 - `GET /api/workers`
 - `GET /api/workers/{worker_id}`
 
@@ -70,6 +74,16 @@ The helper posts to `http://127.0.0.1:8080/api/workers/events` by default. Set `
 
 For quick demos, the dashboard also exposes a `Self Report Intake` form that writes through the same state store and validation rules.
 
+## Operator dispatch
+
+The dashboard now includes a `General Dispatch` form. It writes a prompt file under `data/dispatches/`, launches:
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -
+```
+
+and stores the pid plus log path in the local SQLite database so the operator can see which general order was launched most recently.
+
 Accepted phases in the MVP:
 
 - `assigned`
@@ -84,6 +98,5 @@ Accepted phases in the MVP:
 ## Current MVP seams
 
 - stale-heartbeat tracking and richer liveness rules
-- browser-side operator mutations
-- agent dispatch and coordination workflows
+- browser-side operator mutations beyond the server-rendered forms
 - optional cluster deployment wiring through `local-k8s-apps`

@@ -130,6 +130,47 @@
         </section>
 
         <section class="rail" id="control-pane">
+          <article class="panel" id="dispatch-pane">
+            <div class="section-head">
+              <h2>General Dispatch</h2>
+              <p>Issue one concrete order and launch a real `codex exec` general prompt.</p>
+            </div>
+            {% if dispatch_status == "launched" %}
+            <div class="banner banner-success">
+              <strong>Launched.</strong> The general order was handed to Codex and logged under `data/dispatches`.
+            </div>
+            {% endif %}
+            {% if dispatch_error %}
+            <div class="banner banner-error">
+              <strong>Rejected.</strong> {{ dispatch_error }}
+            </div>
+            {% endif %}
+            <form class="report-form" action="/dispatch" method="post">
+              <div class="form-grid">
+                <label>
+                  <span class="label">General Worker ID</span>
+                  <input name="general_worker_id" value="{{ dispatch_defaults.general_worker_id }}" placeholder="general-20260315-overlord" required>
+                </label>
+                <label>
+                  <span class="label">Branch Hint</span>
+                  <input name="branch_hint" value="{{ dispatch_defaults.branch_hint }}" placeholder="feat/localhost-mvp">
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Repo Path</span>
+                  <input name="repo_path" value="{{ dispatch_defaults.repo_path }}" placeholder="/Users/matthewschwartz/projects/overlord" required>
+                </label>
+                <label class="form-span-2">
+                  <span class="label">Operator Instruction</span>
+                  <textarea name="operator_instruction" rows="5" placeholder="Finish the localhost MVP, verify it with pytest, and hand back the PR URL." required></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit">Launch General</button>
+                <p class="muted-text">Overlord writes the prompt to disk, starts `codex exec`, and keeps the log path visible below.</p>
+              </div>
+            </form>
+          </article>
+
           <article class="panel" id="self-report">
             <div class="section-head">
               <h2>Self Report Intake</h2>
@@ -323,6 +364,35 @@
               {% endif %}
             {% else %}
             <p class="empty-state">No worker selected yet.</p>
+            {% endif %}
+          </article>
+
+          <article class="panel">
+            <div class="section-head">
+              <h2>Recent Orders</h2>
+              <p>General dispatch history with pid and local log paths.</p>
+            </div>
+            {% if recent_commands %}
+            <div class="note-feed">
+              {% for command in recent_commands %}
+              <article class="feed-card">
+                <div class="worker-head">
+                  <h4>{{ command.general_worker_id }}</h4>
+                  <span class="timestamp">{{ command.created_at | relative_time }}</span>
+                </div>
+                <span class="note-phase">{{ command.status.value }}</span>
+                <p>{{ command.operator_instruction }}</p>
+                <p class="repo-line"><strong>repo</strong> <code>{{ command.repo_path }}</code></p>
+                <p class="repo-line"><strong>pid</strong> <code>{{ command.pid }}</code></p>
+                {% if command.branch_hint %}
+                <p class="repo-line"><strong>branch</strong> <code>{{ command.branch_hint }}</code></p>
+                {% endif %}
+                <p class="repo-line"><strong>log</strong> <code>{{ command.log_path }}</code></p>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-state">No general orders launched yet.</p>
             {% endif %}
           </article>
 

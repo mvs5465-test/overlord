@@ -4,10 +4,25 @@ from fastapi.testclient import TestClient
 
 from overlord.app import create_app
 from overlord.config import Settings
+from overlord.models import DispatchStatus, OperatorCommandCreate, OperatorCommandLaunch
 from overlord.worker_status import build_parser, build_payload
 
 
-def build_client(tmp_path: Path) -> TestClient:
+class FakeDispatcher:
+    def __init__(self) -> None:
+        self.commands: list[OperatorCommandCreate] = []
+
+    def dispatch(self, command: OperatorCommandCreate) -> OperatorCommandLaunch:
+        self.commands.append(command)
+        return OperatorCommandLaunch(
+            status=DispatchStatus.LAUNCHED,
+            pid=4242,
+            prompt_path=str(Path(command.repo_path) / "dispatch.prompt.txt"),
+            log_path=str(Path(command.repo_path) / "dispatch.log"),
+        )
+
+
+def build_client(tmp_path: Path, dispatcher: FakeDispatcher | None = None) -> TestClient:
     settings = Settings(
         OVERLORD_APP_NAME="Overlord Test",
         OVERLORD_DEFAULT_ENVIRONMENT="test",
@@ -15,7 +30,7 @@ def build_client(tmp_path: Path) -> TestClient:
         OVERLORD_DATA_DIR=tmp_path,
         OVERLORD_ALLOWED_REPO_ROOTS=str(tmp_path),
     )
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings, dispatcher=dispatcher))
 
 
 def register_worker(client: TestClient, repo_path: Path) -> None:
@@ -87,6 +102,7 @@ def test_meta_endpoint_exposes_control_plane_defaults(tmp_path: Path) -> None:
     assert response.json()["defaults"]["environment"] == "test"
     assert response.json()["defaults"]["workspace"] == "sandbox"
     assert response.json()["api"]["events"] == "/api/workers/events"
+    assert response.json()["api"]["commands"] == "/api/commands"
 
 
 def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
@@ -118,6 +134,7 @@ def test_homepage_renders_live_dashboard(tmp_path: Path) -> None:
     assert "worker-123" in response.text
     assert "Control Pane" in response.text
     assert "Self Report Intake" in response.text
+    assert "General Dispatch" in response.text
     assert "Phase Trail" in response.text
     assert "Phase Notes" in response.text
     assert "keeping api and persistence untouched" in response.text
@@ -319,6 +336,54 @@ def test_dashboard_self_report_form_surfaces_validation_error(tmp_path: Path) ->
     assert response.status_code == 200
     assert "Rejected." in response.text
     assert "blocked transitions must include a blocker" in response.text
+
+
+def test_command_api_launches_general_prompt_and_persists_order(tmp_path: Path) -> None:
+    dispatcher = FakeDispatcher()
+    client = build_client(tmp_path, dispatcher=dispatcher)
+
+    response = client.post(
+        "/api/commands",
+        json={
+            "general_worker_id": "general-local-1",
+            "repo_path": str(tmp_path),
+            "branch_hint": "feat/localhost-mvp",
+            "operator_instruction": "Finish the localhost MVP and report back with tests.",
+        },
+    )
+
+    assert response.status_code == 201
+    command = response.json()["command"]
+    assert command["general_worker_id"] == "general-local-1"
+    assert command["status"] == "launched"
+    assert command["pid"] == 4242
+    assert dispatcher.commands[0].operator_instruction.startswith("Finish the localhost MVP")
+
+    list_response = client.get("/api/commands")
+    assert list_response.status_code == 200
+    assert list_response.json()["commands"][0]["general_worker_id"] == "general-local-1"
+
+
+def test_dashboard_dispatch_form_launches_general_and_shows_recent_order(tmp_path: Path) -> None:
+    dispatcher = FakeDispatcher()
+    client = build_client(tmp_path, dispatcher=dispatcher)
+
+    response = client.post(
+        "/dispatch",
+        data={
+            "general_worker_id": "general-ui-1",
+            "repo_path": str(tmp_path),
+            "branch_hint": "feat/operator-dashboard-ui",
+            "operator_instruction": "Drive the repo to localhost MVP and leave a summary.",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Launched." in response.text
+    assert "general-ui-1" in response.text
+    assert "Drive the repo to localhost MVP and leave a summary." in response.text
+    assert str(tmp_path / "dispatch.log") in response.text
 
 
 def test_worker_status_cli_builds_event_payload_with_abs_repo_path(tmp_path: Path) -> None:
