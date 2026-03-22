@@ -3,423 +3,85 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="15">
     <title>{{ app_name }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
   </head>
   <body>
-    <main class="page">
-      <header class="masthead">
-        <div>
-          <p class="eyebrow">Mission supervision</p>
-          <h1>{{ app_name }}</h1>
-          <p class="lede">A quieter view of missions, workers, conflicts, and dispatches.</p>
-        </div>
-        <div class="masthead-meta">
-          <span>{{ environment }}</span>
-          <span>{{ workspace }}</span>
-          <span>refresh 15s</span>
-        </div>
-      </header>
-
-      <section class="toolbar">
-        <form action="/" method="get" class="search-form">
-          <input type="hidden" name="view" value="{{ supervision.current_view }}">
-          <input type="hidden" name="saved_view" value="{{ supervision.saved_view }}">
-          <label>
-            <span class="label">Search</span>
-            <input name="q" value="{{ supervision.search_query }}" placeholder="worker, repo, branch, blocker, PR">
-          </label>
-        </form>
-
-        <nav class="tab-row" aria-label="Primary views">
-          {% for tab in supervision.view_tabs %}
-          <a class="tab{% if tab.selected %} tab-selected{% endif %}" href="/?view={{ tab.key }}&saved_view={{ supervision.saved_view }}{% if supervision.search_active %}&q={{ supervision.search_query }}{% endif %}">
-            {{ tab.label }}
-          </a>
-          {% endfor %}
-        </nav>
-
-        <div class="saved-views">
-          <span class="label">Saved Views</span>
-          <div class="chip-row">
-            {% for view in supervision.saved_views %}
-            <a class="chip{% if view.selected %} chip-selected{% endif %}" href="/?view=missions&saved_view={{ view.key }}{% if supervision.search_active %}&q={{ supervision.search_query }}{% endif %}">
-              {{ view.label }}
-            </a>
-            {% endfor %}
-          </div>
-        </div>
-      </section>
-
-      <section class="summary-grid">
-        <article>
-          <span class="label">Missions</span>
-          <strong>{{ supervision.summary.missions }}</strong>
-        </article>
-        <article>
-          <span class="label">Workers</span>
-          <strong>{{ supervision.summary.workers }}</strong>
-        </article>
-        <article>
-          <span class="label">Attention</span>
-          <strong>{{ supervision.summary.attention }}</strong>
-        </article>
-        <article>
-          <span class="label">Blocked</span>
-          <strong>{{ supervision.summary.blocked }}</strong>
-        </article>
-        <article>
-          <span class="label">Merge Ready</span>
-          <strong>{{ supervision.summary.merge_ready }}</strong>
-        </article>
-        <article>
-          <span class="label">State</span>
-          <strong><code>{{ data_dir }}/overlord.db</code></strong>
-        </article>
-      </section>
-
-      <div class="layout">
-        <section class="main-pane">
-          {% if supervision.attention_items %}
-          <section class="panel">
-            <div class="section-head">
-              <h2>Attention Queue</h2>
-              <p>Only the things likely to need a manager.</p>
+    <main class="graph-app">
+      <section class="graph-stage-shell">
+        <div
+          id="graph-stage"
+          class="graph-stage"
+          data-graph='{{ graph_payload | tojson }}'
+          data-graph-url="/api/graph{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+          data-command-url="/api/commands"
+          data-default-repo-root="{{ allowed_repo_roots[0] }}"
+          data-default-general-prefix="general-overlord"
+          data-default-captain-prefix="captain-overlord"
+        >
+          <svg class="graph-edges" aria-hidden="true"></svg>
+          <div class="graph-nodes"></div>
+          <section id="node-detail" class="detail-card detail-card-hidden">
+            {% if graph_selected %}
+            <p class="eyebrow">{{ graph_selected.detail.subtitle }}</p>
+            <h2>{{ graph_selected.detail.title }}</h2>
+            <div class="detail-primary">
+              <div class="primary-item">
+                <span class="label">State</span>
+                <p>{{ graph_selected.detail.state }}</p>
+              </div>
+              <div class="primary-item">
+                <span class="label">Mission</span>
+                <p>{{ graph_selected.detail.mission }}</p>
+              </div>
             </div>
-            <div class="stack">
-              {% for item in supervision.attention_items[:6] %}
-              <a class="list-row" href="/?view=missions&saved_view={{ supervision.saved_view }}&mission={{ item.mission_id }}{% if supervision.search_active %}&q={{ supervision.search_query }}{% endif %}">
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <p>{{ item.reason }}</p>
-                </div>
-                <span class="muted">{{ item.age }}</span>
-              </a>
-              {% endfor %}
-            </div>
-          </section>
-          {% endif %}
-
-          {% if supervision.current_view == "missions" or supervision.current_view == "board" or supervision.current_view == "fanout" %}
-          <section class="panel">
-            <div class="section-head">
-              <h2>Mission Table</h2>
-              <p>One mission per row. Merge ladder kept visible, everything else compressed.</p>
-            </div>
-            {% if supervision.mission_rows %}
-            <div class="stack">
-              {% for mission in supervision.mission_rows %}
-              <article class="mission-row{% if mission.selected %} mission-row-selected{% endif %}">
-                <div class="row-head">
-                  <div>
-                    <h3>{{ mission.goal }}</h3>
-                    <p class="muted">{{ mission.repo_name }} · <code>{{ mission.repo_path }}</code></p>
+            <section class="message-feed">
+              <div class="message-feed-head">
+                <span class="label">Messages</span>
+              </div>
+              <div class="message-list">
+                {% if graph_selected.detail.messages %}
+                {% for item in graph_selected.detail.messages %}
+                <article class="message-item">
+                  <div class="message-head">
+                    <span class="message-sender">{{ item.sender }}</span>
+                    <span class="message-type">{{ item.type }}</span>
+                    <span class="message-age">{{ item.age }}</span>
                   </div>
-                  <span class="status">{{ mission.status_label }}</span>
-                </div>
-                <p class="muted">owner {{ mission.owner }} · {{ mission.latest_event_label }} · merge ladder {{ mission.merge_summary }}</p>
-                <div class="chip-row">
-                  <span class="chip">{{ mission.worker_count }} workers</span>
-                  {% if mission.blocked_workers %}
-                  <span class="chip">{{ mission.blocked_workers }} blocked</span>
-                  {% endif %}
-                  {% if mission.stale_workers %}
-                  <span class="chip">{{ mission.stale_workers }} stale</span>
-                  {% endif %}
-                  {% if mission.ready_workers %}
-                  <span class="chip">{{ mission.ready_workers }} ready</span>
-                  {% endif %}
-                  {% for badge in mission.exception_badges %}
-                  <span class="chip">{{ badge.label }}</span>
-                  {% endfor %}
-                </div>
-                <div class="worker-links">
-                  {% for worker in mission.workers %}
-                  <a href="/?view=missions&saved_view={{ supervision.saved_view }}&mission={{ mission.id }}&worker={{ worker.worker_id }}{% if supervision.search_active %}&q={{ supervision.search_query }}{% endif %}">
-                    {{ worker.worker_id }}
-                  </a>
-                  {% endfor %}
-                </div>
-              </article>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="empty-state">No missions match the current filter.</p>
-            {% endif %}
-          </section>
-          {% endif %}
-
-          {% if supervision.current_view == "workers" %}
-          <section class="panel">
-            <div class="section-head">
-              <h2>Workers</h2>
-              <p>Flat worker list when you want direct selection.</p>
-            </div>
-            {% if supervision.worker_rows %}
-            <div class="stack">
-              {% for worker in supervision.worker_rows %}
-              <a class="list-row" href="/?view=workers&saved_view={{ supervision.saved_view }}&mission={{ worker.mission_id }}&worker={{ worker.worker_id }}{% if supervision.search_active %}&q={{ supervision.search_query }}{% endif %}">
-                <div>
-                  <strong>{{ worker.worker_id }}</strong>
-                  <p>{{ worker.status_line }}</p>
-                  <p class="muted">{{ worker.repo_name }} · {{ worker.phase_label }} · {{ worker.updated_label }}</p>
-                </div>
-                <span class="status">{{ worker.merge_label }}</span>
-              </a>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="empty-state">No workers match the current filter.</p>
-            {% endif %}
-          </section>
-          {% endif %}
-
-          {% if supervision.current_view == "dispatches" %}
-          <section class="panel">
-            <div class="section-head">
-              <h2>Dispatch</h2>
-              <p>Recent general orders and where their logs live.</p>
-            </div>
-            {% if supervision.dispatch_rows %}
-            <div class="stack">
-              {% for row in supervision.dispatch_rows %}
-              <article class="list-row list-row-static">
-                <div>
-                  <strong>{{ row.objective }}</strong>
-                  <p>{{ row.owner }} · {{ row.repo_name }}{% if row.branch_hint %} · <code>{{ row.branch_hint }}</code>{% endif %}</p>
-                  <p class="muted">pid {{ row.pid }} · {{ timestamp_format(row.launch_time) }}</p>
-                  <p class="muted"><code>{{ row.log_path }}</code></p>
-                </div>
-                <span class="status">{{ row.progress }}</span>
-              </article>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="empty-state">No dispatches yet.</p>
-            {% endif %}
-          </section>
-          {% endif %}
-
-          {% if supervision.current_view == "conflicts" %}
-          <section class="panel">
-            <div class="section-head">
-              <h2>Conflicts</h2>
-              <p>Shared branch or artifact collisions.</p>
-            </div>
-            {% if supervision.conflict_groups %}
-            <div class="stack">
-              {% for group in supervision.conflict_groups %}
-              <article class="list-row list-row-static">
-                <div>
-                  <strong>{{ group.goal }}</strong>
-                  <p>{{ group.repo_name }}</p>
-                  {% for conflict in group.conflicts %}
-                  <p class="muted">{{ conflict.kind }} · <code>{{ conflict.value }}</code> · {{ conflict.worker_ids | join(", ") }}</p>
-                  {% endfor %}
-                </div>
-              </article>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="empty-state">No conflicts in the current view.</p>
-            {% endif %}
-          </section>
-          {% endif %}
-        </section>
-
-        <aside class="side-pane">
-          <section class="panel">
-            <div class="section-head">
-              <h2>Worker Detail</h2>
-              <p>Selected worker plus recent history.</p>
-            </div>
-            {% if selected_worker %}
-            <div class="detail-block">
-              <p class="eyebrow">{{ selected_worker.phase.value }}</p>
-              <h3>{{ selected_worker.worker_id }}</h3>
-              <p>{{ selected_worker.status_line }}</p>
-            </div>
-            <dl class="meta-list">
-              <div><dt>Repo</dt><dd><code>{{ selected_worker.repo_path }}</code></dd></div>
-              <div><dt>Branch</dt><dd>{% if selected_worker.branch %}<code>{{ selected_worker.branch }}</code>{% else %}none{% endif %}</dd></div>
-              <div><dt>Worktree</dt><dd>{% if selected_worker.worktree %}<code>{{ selected_worker.worktree }}</code>{% else %}none{% endif %}</dd></div>
-              <div><dt>Artifact</dt><dd>{% if selected_worker.owned_artifact %}<code>{{ selected_worker.owned_artifact }}</code>{% else %}none{% endif %}</dd></div>
-            </dl>
-            {% if selected_worker.next_irreversible_step %}
-            <p><strong>Next</strong> {{ selected_worker.next_irreversible_step }}</p>
-            {% endif %}
-            {% if selected_worker.blocker %}
-            <p><strong>Blocker</strong> {{ selected_worker.blocker }}</p>
-            {% endif %}
-            {% if selected_worker.pr_url %}
-            <p><a href="{{ selected_worker.pr_url }}">Open PR</a></p>
-            {% endif %}
-
-            <div class="subsection">
-              <h3>Timeline</h3>
-              <div class="stack compact-stack">
-                {% for transition in selected_worker.transitions[:8] %}
-                <article class="timeline-item">
-                  <p><strong>{{ transition.current_phase.value }}</strong> · {{ timestamp_format(transition.created_at) }}</p>
-                  <p>{{ transition.status_line }}</p>
-                  {% if transition.note %}
-                  <p class="muted">{{ transition.note }}</p>
-                  {% endif %}
+                  <p class="message-body">{{ item.body }}</p>
                 </article>
                 {% endfor %}
+                {% else %}
+                <p class="message-empty">No messages yet.</p>
+                {% endif %}
               </div>
+            </section>
+            {% if graph_selected.detail.actions %}
+            <div class="action-row">
+              {% for action in graph_selected.detail.actions %}
+              <a class="action-link" href="{{ action.href }}">{{ action.label }}</a>
+              {% endfor %}
             </div>
-
-            <div class="subsection">
-              <h3>Phase Notes</h3>
-              {% if selected_phase_notes %}
-              <div class="stack compact-stack">
-                {% for group in selected_phase_notes %}
-                <article class="timeline-item">
-                  <p><strong>{{ group.phase.value }}</strong></p>
-                  {% for note in group.notes[:3] %}
-                  <p>{{ note.note }}</p>
-                  {% endfor %}
-                </article>
+            {% endif %}
+            <section class="extended-details">
+              <button type="button" class="details-toggle" aria-expanded="false">Extended Details</button>
+              <div class="meta-list meta-list-hidden">
+                {% for item in graph_selected.detail.extended %}
+                <div class="meta-item">
+                  <span class="label">{{ item.label }}</span>
+                  <p>{{ item.value }}</p>
+                </div>
                 {% endfor %}
               </div>
-              {% else %}
-              <p class="empty-state">No phase notes yet.</p>
-              {% endif %}
-            </div>
-            {% else %}
-            <p class="empty-state">No worker selected.</p>
+            </section>
             {% endif %}
           </section>
-
-          <section class="panel" id="dispatch-pane">
-            <div class="section-head">
-              <h2>Dispatch</h2>
-              <p>Launch a general order.</p>
-            </div>
-            {% if dispatch_status == "launched" %}
-            <p class="banner banner-success">Launched. Prompt and logs were recorded under the configured data dir.</p>
-            {% endif %}
-            {% if dispatch_error %}
-            <p class="banner banner-error">Rejected. {{ dispatch_error }}</p>
-            {% endif %}
-            <form class="form-stack" action="/dispatch" method="post">
-              <label>
-                <span class="label">General Worker ID</span>
-                <input name="general_worker_id" value="{{ dispatch_defaults.general_worker_id }}" required>
-              </label>
-              <label>
-                <span class="label">Repo Path</span>
-                <input name="repo_path" value="{{ dispatch_defaults.repo_path }}" required>
-              </label>
-              <label>
-                <span class="label">Branch Hint</span>
-                <input name="branch_hint" value="{{ dispatch_defaults.branch_hint }}">
-              </label>
-              <label>
-                <span class="label">Operator Instruction</span>
-                <textarea name="operator_instruction" rows="5" required></textarea>
-              </label>
-              <button type="submit">Launch General</button>
-            </form>
-            {% if supervision.dispatch_rows %}
-            <div class="subsection">
-              <h3>Recent Dispatches</h3>
-              <div class="stack compact-stack">
-                {% for row in supervision.dispatch_rows[:3] %}
-                <article class="timeline-item">
-                  <p><strong>{{ row.owner }}</strong></p>
-                  <p>{{ row.objective }}</p>
-                  <p class="muted"><code>{{ row.log_path }}</code></p>
-                </article>
-                {% endfor %}
-              </div>
-            </div>
-            {% endif %}
-          </section>
-
-          <section class="panel" id="self-report">
-            <div class="section-head">
-              <h2>Self Report Intake</h2>
-              <p>One worker transition at a time.</p>
-            </div>
-            {% if report_status == "accepted" %}
-            <p class="banner banner-success">Accepted. The board will update on refresh.</p>
-            {% endif %}
-            {% if report_error %}
-            <p class="banner banner-error">Rejected. {{ report_error }}</p>
-            {% endif %}
-            <form class="form-stack" action="/report" method="post">
-              <label>
-                <span class="label">Worker ID</span>
-                <input name="worker_id" value="{{ report_defaults.worker_id }}" required>
-              </label>
-              <label>
-                <span class="label">Worker Token</span>
-                <input name="worker_token" type="password" required>
-              </label>
-              <label>
-                <span class="label">Current Phase</span>
-                <select name="current_phase" required>
-                  {% for phase_value in phase_values %}
-                  <option value="{{ phase_value }}"{% if report_defaults.current_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
-                  {% endfor %}
-                </select>
-              </label>
-              <label>
-                <span class="label">Previous Phase</span>
-                <select name="previous_phase">
-                  <option value="">none</option>
-                  {% for phase_value in phase_values %}
-                  <option value="{{ phase_value }}"{% if report_defaults.previous_phase == phase_value %} selected{% endif %}>{{ phase_value }}</option>
-                  {% endfor %}
-                </select>
-              </label>
-              <label>
-                <span class="label">Status Line</span>
-                <input name="status_line" required>
-              </label>
-              <label>
-                <span class="label">Repo Path</span>
-                <input name="repo_path" value="{{ report_defaults.repo_path }}" required>
-              </label>
-              <label>
-                <span class="label">Branch</span>
-                <input name="branch" value="{{ report_defaults.branch }}">
-              </label>
-              <label>
-                <span class="label">Worktree</span>
-                <input name="worktree" value="{{ report_defaults.worktree }}">
-              </label>
-              <label>
-                <span class="label">Owned Artifact</span>
-                <input name="owned_artifact" value="{{ report_defaults.owned_artifact }}">
-              </label>
-              <label>
-                <span class="label">Next Irreversible Step</span>
-                <input name="next_irreversible_step">
-              </label>
-              <label>
-                <span class="label">Blocker</span>
-                <input name="blocker">
-              </label>
-              <label>
-                <span class="label">Pull Request URL</span>
-                <input name="pr_url" type="url">
-              </label>
-              <label>
-                <span class="label">Short Note</span>
-                <textarea name="note" rows="4"></textarea>
-              </label>
-              <button type="submit">Post Self Report</button>
-            </form>
-          </section>
-        </aside>
-      </div>
+        </div>
+      </section>
     </main>
+    <script src="{{ url_for('static', path='/graph.js') }}"></script>
   </body>
 </html>

@@ -22,10 +22,16 @@ This repo now ships the first real MVP slice: a small FastAPI control plane with
 
 ```bash
 pip install -e .[dev]
-python app.py
+./scripts/dev-server.sh
 ```
 
 Then open `http://127.0.0.1:8080`.
+
+For hot-reload during UI/backend editing:
+
+```bash
+OVERLORD_RELOAD=1 ./scripts/dev-server.sh
+```
 
 Useful endpoints:
 
@@ -72,14 +78,56 @@ overlord-worker-status \
 
 The helper posts to `http://127.0.0.1:8080/api/workers/events` by default. Set `OVERLORD_CONTROL_PLANE_URL` to target a different local instance. Each worker is expected to keep its own `worker_token` and reuse it on later writes.
 
+Registration and parent accountability reports should use the same helper instead of hand-written curl payloads:
+
+```bash
+overlord-worker-status register-member \
+  --member-id captain-20260315-example \
+  --member-token captain-secret-token \
+  --role captain \
+  --parent-member-id general-20260315-example \
+  --repo-path /Users/matthewschwartz/projects/overlord \
+  --status-line "captain registered with overlord" \
+  --process-id 12345 \
+  --process-started-at 2026-03-15T22:00:00Z
+```
+
+```bash
+overlord-worker-status parent-report \
+  --member-id worker-20260315-example \
+  --reporter-member-id captain-20260315-example \
+  --reporter-token captain-secret-token \
+  --observed-status-line "replacement worker spawned after drift" \
+  --event-type replaced_underling \
+  --related-member-id worker-20260315-example-retry \
+  --observed-state active
+```
+
+Required live messages use the same helper too:
+
+```bash
+overlord-worker-status post-message \
+  --member-id worker-20260315-example \
+  --sender-member-id captain-20260315-example \
+  --sender-token captain-secret-token \
+  --message-type check \
+  --body "checked worker and it is still progressing"
+```
+
+Phase note:
+
+- `planned`, `implementing`, and `validating` require `--next-step`
+- if that field is not ready yet, report `assigned` or `scouting` first
+- launch/start/progress/blocker/complete messages are required under the Overlord communication contract
+
 For quick demos, the dashboard also exposes a `Self Report Intake` form that writes through the same state store and validation rules.
 
 ## Operator dispatch
 
-The dashboard now includes a `General Dispatch` form. It writes a prompt file under `data/dispatches/`, launches:
+The dashboard now includes an Overlord mission planner that can launch either a `general` or a `captain`. It writes a prompt file under `data/dispatches/`, launches:
 
 ```bash
-codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -
+codex exec -m gpt-5.4 --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -
 ```
 
 and stores the pid plus log path in the local SQLite database so the operator can see which general order was launched most recently.
