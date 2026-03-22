@@ -8,6 +8,8 @@ from typing import Any
 from overlord.models import (
     ConflictRecord,
     DashboardSnapshot,
+    DispatchRole,
+    MemberRole,
     OperatorCommandRecord,
     PHASE_ORDER,
     WorkerDetail,
@@ -201,6 +203,112 @@ def build_supervision_view(
     }
 
 
+def build_graph_view(
+    supervision: dict[str, Any],
+    worker_details: dict[str, WorkerDetail],
+    recent_commands: list[OperatorCommandRecord],
+    *,
+    selected_general_id: str | None = None,
+) -> dict[str, Any]:
+    latest_command_by_root: dict[str, OperatorCommandRecord] = {}
+    for command in sorted(
+        recent_commands,
+        key=lambda item: (item.created_at, item.id),
+        reverse=True,
+    ):
+        latest_command_by_root.setdefault(command.general_worker_id, command)
+
+    latest_activity_at = max(
+        [
+            *(detail.updated_at for detail in worker_details.values()),
+            *(command.created_at for command in latest_command_by_root.values()),
+        ],
+        default=datetime.now(timezone.utc),
+    )
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "overlord",
+            "role": "overlord",
+            "display_type": "overlord",
+            "status_label": _node_status_label("active"),
+            "age_label": _short_age_label(latest_activity_at),
+            "state": "active",
+            "detail": {
+                "title": "OVERLORD",
+                "subtitle": "control plane",
+                "state": "active",
+                "mission": "Central coordinator for generals, captains, and workers.",
+                "messages": [],
+                "extended": [
+                    {"label": "Missions", "value": str(supervision["summary"]["missions"])},
+                    {"label": "Workers", "value": str(supervision["summary"]["workers"])},
+                    {"label": "Attention", "value": str(supervision["summary"]["attention"])},
+                ],
+                "actions": [],
+            },
+        }
+    ]
+    edges: list[dict[str, str]] = []
+    seen_ids = {"overlord"}
+    edge_pairs: set[tuple[str, str]] = set()
+    orphan_worker_clusters: dict[str, str] = {}
+
+    def add_edge(source: str, target: str) -> None:
+        pair = (source, target)
+        if pair not in edge_pairs:
+            edges.append({"source": source, "target": target})
+            edge_pairs.add(pair)
+
+    def add_node(node: dict[str, Any]) -> None:
+        if node["id"] not in seen_ids:
+            nodes.append(node)
+            seen_ids.add(node["id"])
+
+    for root_worker_id, command in sorted(
+        latest_command_by_root.items(),
+        key=lambda item: (item[1].created_at, item[0]),
+    ):
+        add_node(_build_root_graph_node(root_worker_id, worker_details.get(root_worker_id), command))
+        add_edge("overlord", _command_root_node_id(root_worker_id, command))
+
+    for detail in sorted(
+        worker_details.values(),
+        key=lambda item: (_graph_role_order(item.role), item.updated_at.timestamp(), item.worker_id),
+    ):
+        if detail.role == MemberRole.GENERAL:
+            add_node(_build_root_graph_node(detail.worker_id, detail, latest_command_by_root.get(detail.worker_id)))
+            add_edge("overlord", _member_node_id(detail.worker_id, detail.role))
+            continue
+
+        add_node(_build_worker_graph_node(detail))
+        parent_node_id = _resolve_graph_parent_id(
+            detail.parent_worker_id,
+            worker_details,
+            latest_command_by_root,
+        )
+        if parent_node_id is None and detail.role == MemberRole.CAPTAIN and detail.worker_id in latest_command_by_root:
+            parent_node_id = "overlord"
+        if parent_node_id is None and detail.role == MemberRole.WORKER:
+            parent_node_id = _ensure_orphan_worker_cluster(
+                detail,
+                nodes,
+                seen_ids,
+                orphan_worker_clusters,
+            )
+            add_edge("overlord", parent_node_id)
+        if parent_node_id is None:
+            parent_node_id = "overlord"
+        add_edge(parent_node_id, _member_node_id(detail.worker_id, detail.role))
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "selectedNodeId": (
+            _selected_root_node_id(selected_general_id, latest_command_by_root) if selected_general_id else None
+        ),
+    }
+
+
 def _build_mission_rows(
     snapshot: DashboardSnapshot,
     worker_details: dict[str, WorkerDetail],
@@ -208,30 +316,28 @@ def _build_mission_rows(
     worker_states: dict[str, dict[str, str | int]],
     conflicts_by_worker: dict[str, list[ConflictRecord]],
 ) -> list[dict[str, Any]]:
-    command_groups: dict[tuple[str, str], list[OperatorCommandRecord]] = defaultdict(list)
+    commands_by_root: dict[str, list[OperatorCommandRecord]] = defaultdict(list)
     for command in recent_commands:
-        key = (command.repo_path, command.branch_hint or command.general_worker_id)
-        command_groups[key].append(command)
+        commands_by_root[command.general_worker_id].append(command)
 
     remaining_workers = {worker.worker_id: worker for worker in snapshot.workers}
     missions: list[dict[str, Any]] = []
 
-    for key, commands in sorted(
-        command_groups.items(),
+    for root_worker_id, commands in sorted(
+        commands_by_root.items(),
         key=lambda item: max(command.created_at for command in item[1]),
         reverse=True,
     ):
-        repo_path, branch_or_owner = key
         latest_command = max(commands, key=lambda command: (command.created_at, command.id))
-        matched_workers = []
+        matched_workers = [
+            worker
+            for worker in list(remaining_workers.values())
+            if _lineage_root_id(worker, worker_details) == root_worker_id
+            or worker.worker_id == root_worker_id
+        ]
         for worker in list(remaining_workers.values()):
-            if worker.repo_path != repo_path:
+            if worker in matched_workers:
                 continue
-            if latest_command.branch_hint:
-                if worker.branch == latest_command.branch_hint:
-                    matched_workers.append(worker)
-            elif worker.branch == branch_or_owner or worker.worker_id.startswith(branch_or_owner):
-                matched_workers.append(worker)
         for worker in matched_workers:
             remaining_workers.pop(worker.worker_id, None)
         missions.append(
@@ -241,10 +347,40 @@ def _build_mission_rows(
                 commands=sorted(commands, key=lambda command: (command.created_at, command.id), reverse=True),
                 worker_states=worker_states,
                 conflicts_by_worker=conflicts_by_worker,
-                seed_repo=repo_path,
-                owner_hint=latest_command.general_worker_id,
+                seed_repo=latest_command.repo_path,
+                owner_hint=root_worker_id,
                 branch_hint=latest_command.branch_hint,
                 goal_hint=latest_command.operator_instruction,
+            )
+        )
+
+    lineage_groups: dict[str, list[Any]] = defaultdict(list)
+    for worker in list(remaining_workers.values()):
+        lineage_root_id = _lineage_root_id(worker, worker_details)
+        if lineage_root_id:
+            lineage_groups[lineage_root_id].append(worker)
+
+    for root_worker_id, workers in sorted(
+        lineage_groups.items(),
+        key=lambda item: max(worker.updated_at for worker in item[1]),
+        reverse=True,
+    ):
+        for worker in workers:
+            remaining_workers.pop(worker.worker_id, None)
+        root_detail = worker_details.get(root_worker_id)
+        seed_repo = root_detail.repo_path if root_detail else workers[0].repo_path
+        branch_hint = root_detail.branch if root_detail else workers[0].branch
+        missions.append(
+            _build_mission(
+                workers=workers,
+                worker_details=worker_details,
+                commands=[],
+                worker_states=worker_states,
+                conflicts_by_worker=conflicts_by_worker,
+                seed_repo=seed_repo,
+                owner_hint=root_worker_id,
+                branch_hint=branch_hint,
+                goal_hint=None,
             )
         )
 
@@ -609,10 +745,18 @@ def _build_dispatch_rows(
     recent_commands: list[OperatorCommandRecord],
     missions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    mission_lookup = {mission["repo_path"]: mission for mission in missions}
+    mission_lookup = {
+        (mission["owner"], mission["repo_path"]): mission
+        for mission in missions
+    }
     rows = []
     for command in recent_commands:
-        mission = mission_lookup.get(command.repo_path)
+        mission = mission_lookup.get((command.general_worker_id, command.repo_path))
+        if mission is None:
+            mission = next(
+                (item for item in missions if item["owner"] == command.general_worker_id),
+                None,
+            )
         rows.append(
             {
                 "objective": _clip_text(command.operator_instruction, 120),
@@ -676,7 +820,7 @@ def _apply_search(missions: list[dict[str, Any]], search_query: str) -> list[dic
 
 def _apply_saved_view(missions: list[dict[str, Any]], saved_view: str) -> list[dict[str, Any]]:
     if saved_view == "all-active":
-        return [mission for mission in missions if mission["active_workers"]]
+        return [mission for mission in missions if mission["active_workers"] or mission["commands"]]
     if saved_view == "merge-work":
         return [
             mission
@@ -976,3 +1120,334 @@ def _age_seconds(value: datetime) -> int:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return max(0, int((now - value.astimezone(timezone.utc)).total_seconds()))
+
+
+def _lineage_root_id(worker: Any, worker_details: dict[str, WorkerDetail]) -> str | None:
+    current_id = getattr(worker, "worker_id", None)
+    parent_id = getattr(worker, "parent_worker_id", None)
+    if getattr(worker, "role", None) in {MemberRole.GENERAL, MemberRole.CAPTAIN} and not parent_id:
+        return current_id
+
+    seen: set[str] = set()
+    while parent_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent = worker_details.get(parent_id)
+        if parent is None:
+            return parent_id if parent_id.startswith(("general-", "captain-")) else None
+        if parent.role in {MemberRole.GENERAL, MemberRole.CAPTAIN} and not parent.parent_worker_id:
+            return parent.worker_id
+        if parent.role == MemberRole.GENERAL:
+            return parent.worker_id
+        parent_id = parent.parent_worker_id
+    return None
+
+
+def _state_from_status(value: str | None) -> str:
+    text = (value or "").lower()
+    if "blocked" in text or "stuck" in text:
+        return "blocked"
+    if "failed" in text:
+        return "blocked"
+    if "replaced" in text or "terminated" in text:
+        return "warn"
+    if "lost" in text or "missing" in text or "stale" in text or "terminal" in text:
+        return "quiet"
+    if "review" in text or "approved" in text or "ready" in text:
+        return "warn"
+    return "active"
+
+
+def _detail_messages(worker: WorkerDetail) -> list[dict[str, str]]:
+    messages = []
+    for message in worker.messages[:12]:
+        label = "self" if message.sender_member_id == worker.worker_id else message.sender_role.value
+        body = message.body
+        if message.related_member_id:
+            body = f"{body} ({message.related_member_id})"
+        messages.append(
+            {
+                "sender": label,
+                "type": message.message_type,
+                "body": body,
+                "age": format_relative_time(message.created_at),
+            }
+        )
+    return messages
+
+
+def _extended_detail_items(worker: WorkerDetail) -> list[dict[str, str]]:
+    return [
+        {"label": "Role", "value": worker.role.value},
+        {"label": "Current State", "value": worker.effective_state},
+        {"label": "Phase", "value": SUPERVISION_PHASE_LABELS[worker.phase]},
+        {"label": "Repo", "value": Path(worker.repo_path).name or worker.repo_path},
+        {"label": "Branch", "value": worker.branch or "none"},
+        {"label": "Updated", "value": format_relative_time(worker.updated_at)},
+        {"label": "Parent", "value": worker.parent_worker_id or "missing"},
+        {"label": "Process", "value": str(worker.process_id) if worker.process_id else "none"},
+        {
+            "label": "Heartbeat",
+            "value": (
+                f"{worker.last_heartbeat.observed_state} @ {format_relative_time(worker.last_heartbeat.created_at)}"
+                if worker.last_heartbeat
+                else "none"
+            ),
+        },
+        {
+            "label": "Self Report",
+            "value": (
+                f"{worker.phase.value} @ {format_relative_time(worker.last_self_reported_at)}"
+                if worker.last_self_reported_at
+                else "none"
+            ),
+        },
+        {
+            "label": "Parent Report",
+            "value": (
+                f"{worker.last_parent_report.observed_status_line} @ {format_relative_time(worker.last_parent_report.created_at)}"
+                if worker.last_parent_report
+                else "none"
+            ),
+        },
+        {"label": "Recovery", "value": _replacement_label(worker.last_parent_report)},
+        {"label": "Next", "value": worker.next_irreversible_step or "none"},
+        {"label": "Note", "value": worker.last_note.note if worker.last_note else "none"},
+    ]
+
+
+def _build_worker_graph_node(
+    worker: WorkerDetail,
+) -> dict[str, Any]:
+    actions = [
+        {"label": "Focus worker", "href": f"/?worker={worker.worker_id}"},
+    ]
+    if worker.pr_url:
+        actions.append({"label": "Open PR", "href": worker.pr_url})
+    return {
+        "id": _member_node_id(worker.worker_id, worker.role),
+        "role": worker.role.value,
+        "display_type": worker.role.value,
+        "status_label": _node_status_label(worker.effective_state or worker.phase.value),
+        "age_label": _short_age_label(worker.updated_at),
+        "state": _state_from_status(worker.effective_state or worker.phase.value),
+        "detail": {
+            "title": worker.worker_id,
+            "subtitle": worker.role.value,
+            "state": worker.effective_state,
+            "mission": worker.status_line,
+            "messages": _detail_messages(worker),
+            "extended": _extended_detail_items(worker),
+            "actions": actions,
+        },
+    }
+
+
+def _build_root_graph_node(
+    root_worker_id: str,
+    detail: WorkerDetail | None,
+    command: OperatorCommandRecord | None,
+) -> dict[str, Any]:
+    if command is not None and command.dispatch_role == DispatchRole.CAPTAIN and detail is None:
+        return _build_dispatched_captain_graph_node(root_worker_id, command)
+    if detail is not None:
+        node = _build_worker_graph_node(detail)
+        node["id"] = _command_root_node_id(root_worker_id, command)
+        node["role"] = detail.role.value
+        node["display_type"] = detail.role.value
+        node["detail"]["subtitle"] = detail.role.value
+        if command is not None:
+            node["detail"]["extended"].extend(
+                [
+                    {"label": "Mission", "value": _clip_text(command.operator_instruction, 160) or "none"},
+                    {"label": "Dispatch Log", "value": command.log_path},
+                ]
+            )
+        return node
+
+    status_label = "launched" if command is not None else "active"
+    created_at = command.created_at if command is not None else datetime.now(timezone.utc)
+    return {
+        "id": f"general:{root_worker_id}",
+        "role": "general",
+        "display_type": "general",
+        "status_label": _node_status_label(status_label),
+        "age_label": _short_age_label(created_at),
+        "state": _state_from_status(status_label),
+        "detail": {
+            "title": root_worker_id,
+            "subtitle": "general",
+            "state": status_label,
+            "mission": _clip_text(command.operator_instruction if command else "dispatched general", 160),
+            "messages": [],
+            "extended": [
+                {"label": "Current State", "value": status_label},
+                {"label": "Repo", "value": Path(command.repo_path).name if command else "none"},
+                {"label": "Mission", "value": command.operator_instruction if command else "none"},
+                {"label": "Dispatch PID", "value": str(command.pid) if command else "none"},
+                {"label": "Dispatch Log", "value": command.log_path if command else "none"},
+            ],
+            "actions": [],
+        },
+    }
+
+
+def _build_dispatched_captain_graph_node(
+    captain_worker_id: str,
+    command: OperatorCommandRecord,
+) -> dict[str, Any]:
+    return {
+        "id": f"worker:{captain_worker_id}",
+        "role": "captain",
+        "display_type": "captain",
+        "status_label": _node_status_label("launched"),
+        "age_label": _short_age_label(command.created_at),
+        "state": _state_from_status("launched"),
+        "detail": {
+            "title": captain_worker_id,
+            "subtitle": "captain",
+            "state": "launched",
+            "mission": _clip_text(command.operator_instruction, 160),
+            "messages": [],
+            "extended": [
+                {"label": "Current State", "value": "launched"},
+                {"label": "Repo", "value": Path(command.repo_path).name or command.repo_path},
+                {"label": "Mission", "value": command.operator_instruction},
+                {"label": "Dispatch PID", "value": str(command.pid)},
+                {"label": "Dispatch Log", "value": command.log_path},
+            ],
+            "actions": [],
+        },
+    }
+
+
+def _command_root_node_id(root_worker_id: str, command: OperatorCommandRecord | None) -> str:
+    if command is not None and command.dispatch_role == DispatchRole.CAPTAIN:
+        return f"worker:{root_worker_id}"
+    return f"general:{root_worker_id}"
+
+
+def _selected_root_node_id(
+    selected_worker_id: str,
+    latest_command_by_root: dict[str, OperatorCommandRecord],
+) -> str:
+    command = latest_command_by_root.get(selected_worker_id)
+    return _command_root_node_id(selected_worker_id, command)
+
+
+def _member_node_id(worker_id: str, role: MemberRole) -> str:
+    if role == MemberRole.GENERAL:
+        return f"general:{worker_id}"
+    return f"worker:{worker_id}"
+
+
+def _graph_role_order(role: MemberRole) -> int:
+    if role == MemberRole.GENERAL:
+        return 0
+    if role == MemberRole.CAPTAIN:
+        return 1
+    return 2
+
+
+def _resolve_graph_parent_id(
+    parent_worker_id: str | None,
+    worker_details: dict[str, WorkerDetail],
+    latest_command_by_root: dict[str, OperatorCommandRecord],
+) -> str | None:
+    if not parent_worker_id:
+        return None
+    parent_detail = worker_details.get(parent_worker_id)
+    if parent_detail is not None:
+        return _member_node_id(parent_detail.worker_id, parent_detail.role)
+    parent_command = latest_command_by_root.get(parent_worker_id)
+    if parent_command is not None:
+        return _command_root_node_id(parent_worker_id, parent_command)
+    return None
+
+
+def _ensure_orphan_worker_cluster(
+    worker: WorkerDetail,
+    nodes: list[dict[str, Any]],
+    seen_ids: set[str],
+    orphan_worker_clusters: dict[str, str],
+) -> str:
+    cluster_key = worker.repo_path or worker.worker_id
+    cluster_id = orphan_worker_clusters.get(cluster_key)
+    if cluster_id is not None:
+        return cluster_id
+    slug = "".join(character if character.isalnum() else "-" for character in cluster_key.lower()).strip("-")
+    cluster_id = f"captain:orphan:{slug or 'unknown'}"
+    orphan_worker_clusters[cluster_key] = cluster_id
+    if cluster_id not in seen_ids:
+        nodes.append(
+            {
+                "id": cluster_id,
+                "role": "captain",
+                "display_type": "captain",
+                "status_label": "attention",
+                "age_label": _short_age_label(worker.updated_at),
+                "state": "warn",
+                "detail": {
+                    "title": Path(worker.repo_path).name or worker.repo_path,
+                    "subtitle": "synthetic captain",
+                    "state": "attention",
+                    "mission": "Synthetic wrapper for unparented workers. Fix parent_worker_id at registration.",
+                    "messages": [],
+                    "extended": [
+                        {"label": "Repo", "value": worker.repo_path},
+                        {"label": "Lineage", "value": "missing captain parent"},
+                    ],
+                    "actions": [],
+                },
+            }
+        )
+        seen_ids.add(cluster_id)
+    return cluster_id
+
+
+def _node_status_label(value: str | None) -> str:
+    text = (value or "").lower()
+    if "blocked" in text or "stuck" in text:
+        return "blocked"
+    if "failed" in text:
+        return "blocked"
+    if "replaced" in text:
+        return "replaced"
+    if "terminated" in text:
+        return "terminated"
+    if "complete" in text:
+        return "done"
+    if "lost" in text or "missing" in text:
+        return "stale"
+    if "stale" in text:
+        return "stale"
+    if "quiet" in text:
+        return "quiet"
+    if "review" in text or "approved" in text or "ready" in text:
+        return "attention"
+    if "terminal" in text or "done" in text:
+        return "done"
+    return "active"
+
+
+def _short_age_label(value: datetime) -> str:
+    delta_seconds = _age_seconds(value)
+    if delta_seconds < 60:
+        return f"{delta_seconds}s"
+    if delta_seconds < 3600:
+        return f"{max(1, delta_seconds // 60)}m"
+    if delta_seconds < 86400:
+        return f"{max(1, delta_seconds // 3600)}h"
+    return f"{max(1, delta_seconds // 86400)}d"
+
+
+def _replacement_label(report: ParentReportRecord | None) -> str:
+    if report is None or not report.event_type:
+        return "none"
+    related = report.related_member_id or "none"
+    if report.event_type == "replaced_underling":
+        return f"replaced by {related}"
+    if report.event_type == "terminated_underling":
+        return f"terminated {related}"
+    if report.event_type == "spawned_underling":
+        return f"spawned {related}"
+    return report.event_type

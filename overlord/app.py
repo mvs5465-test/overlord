@@ -1,8 +1,9 @@
 from pathlib import Path
+import logging
 from urllib.parse import parse_qs, urlencode
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from overlord.config import Settings
 from overlord.dashboard import (
+    build_graph_view,
     build_supervision_view,
     format_relative_time,
     format_timestamp,
@@ -17,8 +19,12 @@ from overlord.dashboard import (
 from overlord.dispatcher import CodexDispatcher, DispatchLaunchError
 from overlord.models import (
     ALLOWED_TRANSITIONS,
+    DispatchRole,
+    MemberMessageCreate,
     PHASE_ORDER,
     OperatorCommandCreate,
+    ParentReportCreate,
+    RegistrationCreate,
     WorkerEventCreate,
     WorkerNoteCreate,
     WorkerPhase,
@@ -27,8 +33,14 @@ from overlord.store import InvalidTransitionError, StateStore, WorkerAuthError
 
 
 BASE_DIR = Path(__file__).resolve().parent
+logger = logging.getLogger("overlord.app")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["relative_time"] = format_relative_time
+
+
+def _log_event(event: str, **fields: object) -> None:
+    ordered = " ".join(f"{key}={fields[key]!r}" for key in sorted(fields))
+    logger.info("event=%s %s", event, ordered)
 
 
 def create_app(
@@ -63,12 +75,17 @@ def create_app(
         payload = {
             "worker_id": worker_id,
             "worker_token": _clean_optional(form.get("worker_token")),
+            "role": _clean_optional(form.get("role")),
+            "parent_worker_id": _clean_optional(form.get("parent_worker_id")),
             "current_phase": _clean_optional(form.get("current_phase")),
             "previous_phase": _clean_optional(form.get("previous_phase")),
             "repo_path": _clean_optional(form.get("repo_path")),
             "branch": _clean_optional(form.get("branch")),
             "worktree": _clean_optional(form.get("worktree")),
             "owned_artifact": _clean_optional(form.get("owned_artifact")),
+            "host_id": _clean_optional(form.get("host_id")),
+            "process_id": _clean_optional(form.get("process_id")),
+            "process_started_at": _clean_optional(form.get("process_started_at")),
             "status_line": _clean_optional(form.get("status_line")),
             "next_irreversible_step": _clean_optional(form.get("next_irreversible_step")),
             "blocker": _clean_optional(form.get("blocker")),
@@ -82,8 +99,10 @@ def create_app(
             _ensure_repo_path_allowed(settings, event.repo_path)
             state_store.record_event(event)
         except HTTPException as exc:
+            _log_event("self_report_rejected", worker_id=worker_id, reason=str(exc.detail))
             return _redirect_with_status(worker_id=worker_id, error=str(exc.detail))
         except (InvalidTransitionError, WorkerAuthError, ValueError) as exc:
+            _log_event("self_report_rejected", worker_id=worker_id, reason=str(exc))
             return _redirect_with_status(worker_id=worker_id, error=str(exc))
 
         return _redirect_with_status(worker_id=worker_id, report="accepted")
@@ -111,6 +130,7 @@ def create_app(
 
         payload = {
             "general_worker_id": general_worker_id,
+            "dispatch_role": _clean_optional(form.get("dispatch_role")) or DispatchRole.GENERAL.value,
             "repo_path": repo_path,
             "branch_hint": _clean_optional(form.get("branch_hint")),
             "operator_instruction": operator_instruction,
@@ -122,11 +142,13 @@ def create_app(
             launch = dispatcher.dispatch(command)
             recorded = state_store.record_command(command, launch)
         except HTTPException as exc:
+            _log_event("dispatch_rejected", general_worker_id=general_worker_id, reason=str(exc.detail))
             return _redirect_with_status(
                 general_worker_id=general_worker_id,
                 dispatch_error=str(exc.detail),
             )
         except (DispatchLaunchError, ValueError) as exc:
+            _log_event("dispatch_failed", general_worker_id=general_worker_id, reason=str(exc))
             return _redirect_with_status(
                 general_worker_id=general_worker_id,
                 dispatch_error=str(exc),
@@ -138,8 +160,13 @@ def create_app(
         )
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthz(response: Response) -> dict[str, object]:
+        try:
+            return state_store.healthcheck()
+        except Exception as exc:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            _log_event("healthcheck_failed", reason=str(exc))
+            return {"status": "error", "detail": str(exc)}
 
     @app.get("/api/meta")
     async def meta() -> dict[str, object]:
@@ -155,6 +182,9 @@ def create_app(
             "phases": [phase.value for phase in WorkerPhase],
             "api": {
                 "events": "/api/workers/events",
+                "register": "/api/members/register",
+                "parentReport": "/api/members/{member_id}/parent-report",
+                "messages": "/api/members/{member_id}/messages",
                 "notes": "/api/workers/{worker_id}/notes",
                 "workers": "/api/workers",
                 "worker": "/api/workers/{worker_id}",
@@ -177,15 +207,95 @@ def create_app(
     async def list_commands() -> dict[str, object]:
         return {"commands": jsonable_encoder(state_store.list_commands())}
 
+    @app.post("/api/members/register", status_code=status.HTTP_201_CREATED)
+    async def register_member(registration: RegistrationCreate) -> dict[str, object]:
+        _ensure_repo_path_allowed(settings, registration.repo_path)
+        try:
+            detail = state_store.register_member(registration)
+        except ValueError as exc:
+            _log_event("registration_rejected", member_id=registration.member_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        except WorkerAuthError as exc:
+            _log_event("registration_rejected", member_id=registration.member_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        except KeyError as exc:
+            _log_event("registration_rejected", member_id=registration.member_id, reason="parent not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="parent not found") from exc
+        return {"member": jsonable_encoder(detail)}
+
+    @app.post("/api/members/{member_id}/parent-report", status_code=status.HTTP_201_CREATED)
+    async def parent_report(member_id: str, report: ParentReportCreate) -> dict[str, object]:
+        if report.subject_member_id != member_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="subject_member_id must match URL member_id",
+            )
+        try:
+            created = state_store.record_parent_report(report)
+        except WorkerAuthError as exc:
+            _log_event("parent_report_rejected", member_id=member_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        except KeyError as exc:
+            _log_event("parent_report_rejected", member_id=member_id, reason="member not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="member not found") from exc
+        return {"report": jsonable_encoder(created)}
+
+    @app.post("/api/members/{member_id}/messages", status_code=status.HTTP_201_CREATED)
+    async def post_member_message(member_id: str, message: MemberMessageCreate) -> dict[str, object]:
+        if message.member_id != member_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="member_id must match URL member_id",
+            )
+        try:
+            created = state_store.record_member_message(message)
+        except WorkerAuthError as exc:
+            _log_event("member_message_rejected", member_id=member_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        except KeyError as exc:
+            _log_event("member_message_rejected", member_id=member_id, reason=f"member not found: {exc.args[0]}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="member not found") from exc
+        return {"message": jsonable_encoder(created)}
+
+    @app.get("/api/members/{member_id}/messages")
+    async def list_member_messages(member_id: str) -> dict[str, object]:
+        try:
+            state_store.get_worker(member_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="member not found") from exc
+        return {"messages": jsonable_encoder(state_store.list_member_messages(member_id))}
+
+    @app.get("/api/graph")
+    async def graph(request: Request) -> dict[str, object]:
+        page_state = _build_page_state(request, state_store)
+        graph_payload = build_graph_view(
+            page_state["supervision"],
+            page_state["worker_details"],
+            page_state["recent_commands"],
+            selected_general_id=request.query_params.get("general"),
+        )
+        _log_event(
+            "graph_summary",
+            nodes=len(graph_payload["nodes"]),
+            edges=len(graph_payload["edges"]),
+            workers=page_state["snapshot"].totals["workers"],
+        )
+        return {"graph": jsonable_encoder(graph_payload)}
+
     @app.post("/api/workers/events", status_code=status.HTTP_201_CREATED)
     async def post_worker_event(event: WorkerEventCreate) -> dict[str, object]:
         _ensure_repo_path_allowed(settings, event.repo_path)
         try:
             detail = state_store.record_event(event)
-        except WorkerAuthError as exc:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         except InvalidTransitionError as exc:
+            _log_event("self_report_rejected", worker_id=event.worker_id, reason=str(exc))
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except ValueError as exc:
+            _log_event("self_report_rejected", worker_id=event.worker_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        except WorkerAuthError as exc:
+            _log_event("self_report_rejected", worker_id=event.worker_id, reason=str(exc))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
         return {"worker": jsonable_encoder(detail)}
 
@@ -231,23 +341,22 @@ def _render_dashboard(
     state_store: StateStore,
     settings: Settings,
 ) -> HTMLResponse:
-    snapshot = state_store.snapshot()
-    recent_commands = state_store.list_commands()
-    worker_details = {
-        worker.worker_id: state_store.get_worker(worker.worker_id)
-        for worker in snapshot.workers
-    }
-    supervision = build_supervision_view(
-        snapshot,
+    page_state = _build_page_state(request, state_store)
+    snapshot = page_state["snapshot"]
+    recent_commands = page_state["recent_commands"]
+    worker_details = page_state["worker_details"]
+    supervision = page_state["supervision"]
+    selected_worker = supervision["selected_worker"]
+    graph_payload = build_graph_view(
+        supervision,
         worker_details,
         recent_commands,
-        requested_worker_id=request.query_params.get("worker"),
-        requested_mission_id=request.query_params.get("mission"),
-        search_query=request.query_params.get("q", ""),
-        current_view=request.query_params.get("view", "missions"),
-        saved_view=request.query_params.get("saved_view", "all-active"),
+        selected_general_id=request.query_params.get("general"),
     )
-    selected_worker = supervision["selected_worker"]
+    graph_selected = next(
+        (node for node in graph_payload["nodes"] if node["id"] == graph_payload["selectedNodeId"]),
+        graph_payload["nodes"][0] if graph_payload["nodes"] else None,
+    )
     report_defaults = {
         "worker_id": selected_worker.worker_id if selected_worker else "",
         "current_phase": (
@@ -267,6 +376,7 @@ def _render_dashboard(
     }
     dispatch_defaults = {
         "general_worker_id": request.query_params.get("general") or "general-local-1",
+        "dispatch_role": request.query_params.get("dispatch_role") or DispatchRole.GENERAL.value,
         "repo_path": selected_worker.repo_path if selected_worker else str(settings.allowed_repo_roots[0]),
         "branch_hint": selected_worker.branch if selected_worker and selected_worker.branch else "",
     }
@@ -287,6 +397,8 @@ def _render_dashboard(
             "selected_worker_id": supervision["selected_worker_id"],
             "selected_phase_notes": supervision["selected_worker_notes"],
             "supervision": supervision,
+            "graph_payload": graph_payload,
+            "graph_selected": graph_selected,
             "timestamp_format": format_timestamp,
             "report_status": request.query_params.get("report"),
             "report_error": request.query_params.get("error"),
@@ -296,6 +408,31 @@ def _render_dashboard(
             "dispatch_defaults": dispatch_defaults,
         },
     )
+
+
+def _build_page_state(request: Request, state_store: StateStore) -> dict[str, object]:
+    snapshot = state_store.snapshot()
+    recent_commands = state_store.list_commands()
+    worker_details = {
+        worker.worker_id: state_store.get_worker(worker.worker_id)
+        for worker in snapshot.workers
+    }
+    supervision = build_supervision_view(
+        snapshot,
+        worker_details,
+        recent_commands,
+        requested_worker_id=request.query_params.get("worker"),
+        requested_mission_id=request.query_params.get("mission"),
+        search_query=request.query_params.get("q", ""),
+        current_view=request.query_params.get("view", "missions"),
+        saved_view=request.query_params.get("saved_view", "all-active"),
+    )
+    return {
+        "snapshot": snapshot,
+        "recent_commands": recent_commands,
+        "worker_details": worker_details,
+        "supervision": supervision,
+    }
 
 
 def _clean_optional(value: object) -> str | None:
